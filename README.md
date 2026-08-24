@@ -26,10 +26,6 @@ You can download the zashboard files here:
 
 > All builds include sing-box native API support.
 
-> [!WARNING]
-> Support for sing-box will be removed in the next release. [Learn more about this
-> decision](./docs/sing-box-deprecation.md).
-
 release:
 
 - [dist.zip (7.81 MB)](https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip) – Includes better font-loading experience.

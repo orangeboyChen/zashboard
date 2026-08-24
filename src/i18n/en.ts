@@ -15,9 +15,6 @@ const en = {
   backendType: 'Backend Type',
   clashApi: 'Clash API',
   singboxApi: 'sing-box API',
-  singboxSupportEndingTitle: 'sing-box support is ending',
-  singboxSupportEndingMessage: 'zashboard will remove support for sing-box in the next release.',
-  dontShowAgain: "Don't show again",
   skip: 'Skip',
   // Tools page
   networkQuality: 'Network Quality',

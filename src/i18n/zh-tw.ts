@@ -17,9 +17,6 @@ const zhTW: LANG_MESSAGE = {
   backendType: '後端類型',
   clashApi: 'Clash API',
   singboxApi: 'sing-box API',
-  singboxSupportEndingTitle: '即將移除 sing-box 支援',
-  singboxSupportEndingMessage: 'zashboard 將在下個版本中移除對 sing-box 的支援。',
-  dontShowAgain: '不再提示',
   skip: '跳過',
   // 工具頁
   networkQuality: '網路品質',
