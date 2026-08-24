@@ -100,7 +100,7 @@ const runOnce = async (
 
 /** 当前后端/内核下真正能执行的动作,顺序即两处入口的展示顺序 */
 export const backendActions = computed<BackendAction[]>(() => {
-  if (!activeBackend.value) return []
+  if (!can('coreActions')) return []
 
   const actions: BackendAction[] = []
 
@@ -168,23 +168,27 @@ export const backendActions = computed<BackendAction[]>(() => {
     })
   }
 
-  actions.push({
-    key: k.flushDNSCache,
-    label: 'flushDNSCache',
-    icon: TrashIcon,
-    running: isDNSCacheFlushing.value,
-    opensModal: false,
-    run: () => runOnce(isDNSCacheFlushing, flushDNSCacheAPI, 'flushDNSCacheSuccess'),
-  })
+  if (can('dnsFlush')) {
+    actions.push({
+      key: k.flushDNSCache,
+      label: 'flushDNSCache',
+      icon: TrashIcon,
+      running: isDNSCacheFlushing.value,
+      opensModal: false,
+      run: () => runOnce(isDNSCacheFlushing, flushDNSCacheAPI, 'flushDNSCacheSuccess'),
+    })
+  }
 
-  actions.push({
-    key: k.flushFakeIP,
-    label: 'flushFakeIP',
-    icon: TrashIcon,
-    running: isFakeIPFlushing.value,
-    opensModal: false,
-    run: () => runOnce(isFakeIPFlushing, flushFakeIPAPI, 'flushFakeIPSuccess'),
-  })
+  if (can('fakeIPFlush')) {
+    actions.push({
+      key: k.flushFakeIP,
+      label: 'flushFakeIP',
+      icon: TrashIcon,
+      running: isFakeIPFlushing.value,
+      opensModal: false,
+      run: () => runOnce(isFakeIPFlushing, flushFakeIPAPI, 'flushFakeIPSuccess'),
+    })
+  }
 
   if (hasSmartGroup.value) {
     actions.push({

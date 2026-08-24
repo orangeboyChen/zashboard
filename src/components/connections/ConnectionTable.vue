@@ -559,6 +559,27 @@ const columns: ColumnDef<Connection>[] = [
       getTableDisplayValue(original, CONNECTIONS_TABLE_ACCESSOR_KEY.InboundUser),
     cell: highlightedCell(CONNECTIONS_TABLE_ACCESSOR_KEY.InboundUser),
   },
+  {
+    header: () => t(CONNECTIONS_TABLE_ACCESSOR_KEY.Protocol),
+    id: CONNECTIONS_TABLE_ACCESSOR_KEY.Protocol,
+    accessorFn: (original) =>
+      getTableDisplayValue(original, CONNECTIONS_TABLE_ACCESSOR_KEY.Protocol),
+    cell: highlightedCell(CONNECTIONS_TABLE_ACCESSOR_KEY.Protocol),
+  },
+  {
+    header: () => t(CONNECTIONS_TABLE_ACCESSOR_KEY.OutboundType),
+    id: CONNECTIONS_TABLE_ACCESSOR_KEY.OutboundType,
+    accessorFn: (original) =>
+      getTableDisplayValue(original, CONNECTIONS_TABLE_ACCESSOR_KEY.OutboundType),
+    cell: highlightedCell(CONNECTIONS_TABLE_ACCESSOR_KEY.OutboundType),
+  },
+  {
+    header: () => t(CONNECTIONS_TABLE_ACCESSOR_KEY.FromOutbound),
+    id: CONNECTIONS_TABLE_ACCESSOR_KEY.FromOutbound,
+    accessorFn: (original) =>
+      getTableDisplayValue(original, CONNECTIONS_TABLE_ACCESSOR_KEY.FromOutbound),
+    cell: highlightedCell(CONNECTIONS_TABLE_ACCESSOR_KEY.FromOutbound),
+  },
 ]
 
 const grouping = useStorage<GroupingState>('config/table-grouping', [])
