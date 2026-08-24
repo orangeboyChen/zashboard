@@ -1,70 +1,65 @@
 name: Build and Deploy
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version or tag (for example, v3.23.0)
+        required: true
+        type: string
+      overwrite:
+        description: Overwrite an existing GitHub Release and its assets
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
-  release-please:
+  prepare-version:
     runs-on: ubuntu-latest
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
-
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
-      - name: release-please
-        id: release
-        uses: googleapis/release-please-action@v5
-        with:
-          token: ${{ secrets.PAT }}
-          release-type: node
-          target-branch: main
-
-  build-and-deploy:
-    needs: release-please
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # Each font variant is published to its own gh-pages branch.
-        font:
-          - { key: all, suffix: '' }
-          - { key: cdn, suffix: '-cdn-fonts' }
-          - { key: firasans, suffix: '-firasans-only' }
-          - { key: misans, suffix: '-misans-only' }
-          - { key: pingfang, suffix: '-pingfang-only' }
-          - { key: sarasa, suffix: '-sarasa-only' }
-          - { key: none, suffix: '-no-fonts' }
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-      - uses: pnpm/action-setup@v6
-
-      - name: Install and Build 🔧
+      - name: Normalize version
+        id: version
         env:
-          FONT: ${{ matrix.font.key }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          pnpm i
-          pnpm run build
-          echo 'board.zash.run.place' > ./dist/CNAME
+          version="${INPUT_VERSION#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version: $INPUT_VERSION"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
 
-      - name: Deploy 🚀
-        uses: peaceiris/actions-gh-pages@v4
+  create-release:
+    needs: prepare-version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare-version.outputs.tag }}
+          OVERWRITE: ${{ inputs.overwrite }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && [[ "$OVERWRITE" != "true" ]]; then
+            echo "Release $TAG already exists. Set overwrite=true to replace it."
+            exit 1
+          fi
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
         with:
-          github_token: ${{ secrets.PAT }}
-          publish_dir: ./dist
-          publish_branch: gh-pages${{ matrix.font.suffix }}
-          force_orphan: true
+          tag_name: ${{ needs.prepare-version.outputs.tag }}
+          name: ${{ needs.prepare-version.outputs.tag }}
+          generate_release_notes: true
 
   release-dist:
-    needs: release-please
+    needs: [prepare-version, create-release]
     runs-on: ubuntu-latest
-    if: ${{ needs.release-please.outputs.release_created }}
     strategy:
       fail-fast: false
       matrix:
@@ -84,48 +79,31 @@ jobs:
       - name: Build and Zip the dist folder
         env:
           FONT: ${{ matrix.font.key }}
+          VERSION: ${{ needs.prepare-version.outputs.version }}
         run: |
+          npm pkg set version="$VERSION"
           pnpm i
           pnpm run build
           zip -r dist${{ matrix.font.suffix }}.zip dist
+
+      - name: Build ShellCrash archive
+        if: matrix.font.key == 'all'
+        run: |
+          find dist -type f \( -name '*.ttf' -o -name '*.woff' -o -name '*.woff2' \) -delete
+          printf '%s\n' 'board.zash.run.place' > dist/CNAME
+          tar -czf zashboard.tar.gz -C dist .
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           files: dist${{ matrix.font.suffix }}.zip
-          tag_name: ${{ needs.release-please.outputs.tag_name }}
+          tag_name: ${{ needs.prepare-version.outputs.tag }}
+          overwrite_files: ${{ inputs.overwrite }}
 
-  release-image:
-    needs: release-please
-    runs-on: ubuntu-latest
-    if: ${{ needs.release-please.outputs.release_created }}
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: set up QEMU
-        uses: docker/setup-qemu-action@v4
-
-      - name: set up docker buildx
-        uses: docker/setup-buildx-action@v4
-        id: buildx
-
-      - name: login to ghcr.io
-        uses: docker/login-action@v4
+      - name: Upload ShellCrash archive
+        if: matrix.font.key == 'all'
+        uses: softprops/action-gh-release@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.PAT }}
-
-      - name: build and publish ghcr.io docker image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          builder: ${{ steps.buildx.outputs.name }}
-          file: Dockerfile
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
-          push: true
-          tags: |
-            ghcr.io/zephyruso/zashboard:latest
-            ghcr.io/zephyruso/zashboard:${{ needs.release-please.outputs.tag_name }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          files: zashboard.tar.gz
+          tag_name: ${{ needs.prepare-version.outputs.tag }}
+          overwrite_files: ${{ inputs.overwrite }}
