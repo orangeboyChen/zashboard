@@ -153,12 +153,12 @@ tr.table-row-stripe > .pinned-td {
  * 循环（调到 0 就等于关掉了模态语义）。顺带去掉了整屏的 backdrop-blur：.modal-box
  * 自己已经有一层 backdrop-filter，在压暗层之上再模糊一次是零收益的 GPU 开销。
  *
- * 高度绑到 --dialog-viewport-height（由 composables/dialog.ts 在弹窗打开时发布）而不是
- * dvh：iOS Safari 键盘弹起时不收缩 layout viewport，dvh 也不变，贴底的抽屉会被键盘整个
- * 盖住。daisyUI 的 .modal 是 inset: 0，必须先把 bottom 解绑，否则 height 不生效。
+ * 高度直接吃 daisyUI 的 inset: 0：viewport meta 上的 interactive-widget=resizes-content
+ * 让软键盘弹起时 layout viewport（连带 dvh）一起收缩，抽屉自然停在键盘上方，不再需要
+ * 用 JS 把 visualViewport.height 镜像成 CSS 变量。
  */
 @utility modal {
-  @apply max-md:bottom-auto max-md:h-[var(--dialog-viewport-height,100dvh)] max-md:place-items-end;
+  @apply max-md:place-items-end;
 }
 
 /* 圆角走 daisyUI 的 --modal-* 变量，底部归零、顶部继续跟随主题的 --radius-box。 */

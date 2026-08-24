@@ -75,12 +75,17 @@
   @apply bg-base-100 grid grid-cols-1 overflow-hidden rounded-xl;
 }
 .setting-item {
-  @apply border-base-border flex min-h-12 items-center gap-3 border-b px-4 outline-none;
+  @apply border-base-border flex min-h-12 items-center gap-3 border-b px-4 py-2 outline-none;
   &:last-child {
     border-bottom: none;
   }
+  /*
+   * 允许收缩换行：控件（daisyUI 的 .toggle 等）自带 flex-shrink: 0，标签若也不收缩，
+   * 长文案会把整行撑成 max-content，控件被 .settings-grid 的 overflow-hidden 裁掉。
+   * 需要标签独占一行的场景（配合 flex-1 输入框）在用处显式写 shrink-0!。
+   */
   .setting-item-label {
-    @apply shrink-0 grow text-sm;
+    @apply min-w-0 grow text-sm;
     svg {
       @apply text-base-content/40 inline-block;
     }
