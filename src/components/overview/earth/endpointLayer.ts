@@ -12,6 +12,8 @@ import {
   vec4,
 } from 'three/tsl'
 import * as THREE from 'three/webgpu'
+import { ENDPOINT_RADIUS } from './earthMath'
+import { projectEarthSample, projectionMorph, toLocalSample, type EarthView } from './projection'
 import type { EarthRenderEndpoint, EarthRenderSnapshot, EarthVisualMode } from './rendererTypes'
 
 const ENDPOINT_CORE_RADIUS = 0.011
@@ -24,6 +26,8 @@ const ROLE_GLOW_COLORS = {
   origin: new THREE.Color('#a9e9ff'),
   destination: new THREE.Color('#3fa8ff'),
 } as const
+const DIRECT_COLOR = new THREE.Color('#ff9f43')
+const DIRECT_GLOW_COLOR = new THREE.Color('#ff7a1a')
 // The user's own location is the anchor of every arc, so it gets a slightly
 // wider bead and halo than the destinations radiating out of it.
 const ROLE_SCALES = {
@@ -32,8 +36,9 @@ const ROLE_SCALES = {
 } as const
 
 interface EndpointLayerOptions {
-  earthGroup: THREE.Group
+  parent: THREE.Object3D
   camera: THREE.Camera
+  view: EarthView
   visualMode: EarthVisualMode
   sunDirection: THREE.Vector3
 }
@@ -50,6 +55,7 @@ export interface EndpointLayer {
     snapshot: EarthRenderSnapshot,
     topologyChanged: boolean,
   ) => readonly EarthRenderEndpoint[]
+  setView: (view: EarthView) => void
   setVisualMode: (mode: EarthVisualMode) => void
   setSunDirection: (direction: THREE.Vector3) => void
   update: (delta: number) => void
@@ -58,7 +64,7 @@ export interface EndpointLayer {
 }
 
 export const createEndpointLayer = (options: EndpointLayerOptions): EndpointLayer => {
-  const { camera, earthGroup } = options
+  const { camera, parent } = options
   // Endpoints are unlit beads, so their volume has to be faked in the shader:
   // `facing` is 1 at the point of the sphere aimed straight at the camera and 0
   // along the silhouette, which drives both the specular-like hot core and the
@@ -108,6 +114,7 @@ export const createEndpointLayer = (options: EndpointLayerOptions): EndpointLaye
   let endpointMesh: THREE.InstancedMesh | null = null
   let endpointGlowMesh: THREE.InstancedMesh | null = null
   let endpoints: readonly EarthRenderEndpoint[] = []
+  let view = options.view
   let visualMode = options.visualMode
   let pulseTime = 0
   let disposed = false
@@ -122,26 +129,38 @@ export const createEndpointLayer = (options: EndpointLayerOptions): EndpointLaye
     topHosts: endpoint.topHosts.map((host) => ({ ...host })),
   })
 
+  // Beads sit just above the surface. `cityLabelLayer` reads the very same
+  // Vector3 instances, so these are updated in place rather than replaced.
+  const projectEndpoints = () => {
+    const morph = projectionMorph(view.projection)
+
+    for (const endpoint of endpoints) {
+      projectEarthSample(toLocalSample(endpoint, ENDPOINT_RADIUS, view), morph, endpoint.position)
+    }
+  }
+
+  const isFlatLook = () => visualMode === 'flat' || view.projection === '2d'
+
   const rebuildMeshes = () => {
     if (endpointMesh) {
-      earthGroup.remove(endpointMesh)
+      parent.remove(endpointMesh)
       endpointMesh.dispose()
     }
     if (endpointGlowMesh) {
-      earthGroup.remove(endpointGlowMesh)
+      parent.remove(endpointGlowMesh)
       endpointGlowMesh.dispose()
     }
 
     const capacity = Math.max(1, endpoints.length)
     endpointMesh = new THREE.InstancedMesh(
       endpointGeometry,
-      visualMode === 'flat' ? flatEndpointMaterial : endpointMaterial,
+      isFlatLook() ? flatEndpointMaterial : endpointMaterial,
       capacity,
     )
     endpointGlowMesh = new THREE.InstancedMesh(endpointGlowGeometry, endpointGlowMaterial, capacity)
     endpointMesh.count = endpoints.length
     endpointGlowMesh.count = endpoints.length
-    endpointGlowMesh.visible = visualMode === 'space'
+    endpointGlowMesh.visible = !isFlatLook()
     endpointRotation.identity()
 
     for (let index = 0; index < endpoints.length; index += 1) {
@@ -151,8 +170,11 @@ export const createEndpointLayer = (options: EndpointLayerOptions): EndpointLaye
       matrix.compose(endpoint.position, endpointRotation, endpointScale.setScalar(scale))
       endpointMesh.setMatrixAt(index, matrix)
       endpointGlowMesh.setMatrixAt(index, matrix)
-      endpointMesh.setColorAt(index, ROLE_COLORS[endpoint.role])
-      endpointGlowMesh.setColorAt(index, ROLE_GLOW_COLORS[endpoint.role])
+      endpointMesh.setColorAt(index, endpoint.direct ? DIRECT_COLOR : ROLE_COLORS[endpoint.role])
+      endpointGlowMesh.setColorAt(
+        index,
+        endpoint.direct ? DIRECT_GLOW_COLOR : ROLE_GLOW_COLORS[endpoint.role],
+      )
     }
 
     endpointMesh.instanceMatrix.needsUpdate = true
@@ -163,7 +185,7 @@ export const createEndpointLayer = (options: EndpointLayerOptions): EndpointLaye
     // blends over everything already on screen.
     endpointMesh.renderOrder = 5
     endpointGlowMesh.renderOrder = 6
-    earthGroup.add(endpointMesh, endpointGlowMesh)
+    parent.add(endpointMesh, endpointGlowMesh)
   }
 
   return {
@@ -172,6 +194,7 @@ export const createEndpointLayer = (options: EndpointLayerOptions): EndpointLaye
 
       if (topologyChanged) {
         endpoints = snapshot.endpoints.map(cloneEndpoint)
+        projectEndpoints()
         rebuildMeshes()
       } else {
         const nextByKey = new Map(snapshot.endpoints.map((endpoint) => [endpoint.key, endpoint]))
@@ -182,6 +205,7 @@ export const createEndpointLayer = (options: EndpointLayerOptions): EndpointLaye
           if (next) {
             endpoint.city = next.city
             endpoint.country = next.country
+            endpoint.direct = next.direct
             endpoint.connections = next.connections
             endpoint.topHosts = next.topHosts.map((host) => ({ ...host }))
           }
@@ -190,13 +214,25 @@ export const createEndpointLayer = (options: EndpointLayerOptions): EndpointLaye
 
       return endpoints
     },
+    setView(nextView) {
+      if (
+        disposed ||
+        (view.projection === nextView.projection &&
+          view.centerLongitude === nextView.centerLongitude)
+      ) {
+        return
+      }
+      view = nextView
+      projectEndpoints()
+      rebuildMeshes()
+    },
     setVisualMode(mode) {
       if (disposed || visualMode === mode) return
       visualMode = mode
       if (endpointMesh) {
-        endpointMesh.material = mode === 'flat' ? flatEndpointMaterial : endpointMaterial
+        endpointMesh.material = isFlatLook() ? flatEndpointMaterial : endpointMaterial
       }
-      if (endpointGlowMesh) endpointGlowMesh.visible = mode === 'space'
+      if (endpointGlowMesh) endpointGlowMesh.visible = !isFlatLook()
     },
     setSunDirection(direction) {
       if (disposed) return
@@ -224,12 +260,12 @@ export const createEndpointLayer = (options: EndpointLayerOptions): EndpointLaye
       if (disposed) return
       disposed = true
       if (endpointMesh) {
-        earthGroup.remove(endpointMesh)
+        parent.remove(endpointMesh)
         endpointMesh.dispose()
         endpointMesh = null
       }
       if (endpointGlowMesh) {
-        earthGroup.remove(endpointGlowMesh)
+        parent.remove(endpointGlowMesh)
         endpointGlowMesh.dispose()
         endpointGlowMesh = null
       }

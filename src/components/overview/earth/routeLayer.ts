@@ -1,7 +1,8 @@
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js'
 import { LineSegments2 } from 'three/addons/lines/webgpu/LineSegments2.js'
 import * as THREE from 'three/webgpu'
-import { createGreatCircle, sampleEarthPath } from './earthMath'
+import { sampleEarthPath } from './earthMath'
+import { createRouteArc, type EarthView } from './projection'
 import type { EarthColorScheme, EarthRenderSnapshot, EarthVisualMode } from './rendererTypes'
 import type { EarthRoute } from './types'
 
@@ -10,8 +11,11 @@ const FLOW_STREAK_LENGTH = 0.14
 const FLOW_STREAK_SEGMENTS = 14
 const FLOW_COLOR = new THREE.Color('#ffffff')
 const FLAT_LIGHT_FLOW_COLOR = new THREE.Color('#5ad9ef')
+const DIRECT_FLOW_COLOR = new THREE.Color('#ff9f43')
 const LINE_ORIGIN_COLOR = new THREE.Color('#b8f7ff')
 const LINE_DESTINATION_COLOR = new THREE.Color('#4f9dff')
+const DIRECT_LINE_ORIGIN_COLOR = new THREE.Color('#ffd09a')
+const DIRECT_LINE_DESTINATION_COLOR = new THREE.Color('#ff7a1a')
 
 interface RuntimeRoute {
   route: EarthRoute
@@ -19,13 +23,15 @@ interface RuntimeRoute {
 }
 
 interface RouteLayerOptions {
-  earthGroup: THREE.Group
+  parent: THREE.Object3D
+  view: EarthView
   visualMode: EarthVisualMode
   colorScheme: EarthColorScheme
 }
 
 export interface RouteLayer {
   setSnapshot: (snapshot: EarthRenderSnapshot, topologyChanged: boolean) => void
+  setView: (view: EarthView) => void
   setVisualMode: (mode: EarthVisualMode) => void
   setColorScheme: (scheme: EarthColorScheme) => void
   update: (elapsed: number) => void
@@ -33,7 +39,7 @@ export interface RouteLayer {
 }
 
 export const createRouteLayer = (options: RouteLayerOptions): RouteLayer => {
-  const { earthGroup } = options
+  const { parent } = options
   let lineGeometry = new LineSegmentsGeometry()
   const lineGlowMaterial = new THREE.Line2NodeMaterial({
     color: '#ffffff',
@@ -63,7 +69,7 @@ export const createRouteLayer = (options: RouteLayerOptions): RouteLayer => {
   lines.visible = false
   lineGlow.renderOrder = 1
   lines.renderOrder = 2
-  earthGroup.add(lineGlow, lines)
+  parent.add(lineGlow, lines)
 
   let flowGeometry = new LineSegmentsGeometry()
   const flowGlowMaterial = new THREE.Line2NodeMaterial({
@@ -92,9 +98,11 @@ export const createRouteLayer = (options: RouteLayerOptions): RouteLayer => {
   flows.visible = false
   flowGlow.renderOrder = 3
   flows.renderOrder = 4
-  earthGroup.add(flowGlow, flows)
+  parent.add(flowGlow, flows)
 
   let runtimeRoutes: RuntimeRoute[] = []
+  let currentRoutes: readonly EarthRoute[] = []
+  let view = options.view
   let visualMode = options.visualMode
   let colorScheme = options.colorScheme
   let disposed = false
@@ -106,8 +114,12 @@ export const createRouteLayer = (options: RouteLayerOptions): RouteLayer => {
   const flowStart = new THREE.Vector3()
   const flowEnd = new THREE.Vector3()
 
+  // The flat map keeps the same restrained look as the flat globe style, so the
+  // additive glow passes are off in 2D regardless of the selected style.
+  const isFlatLook = () => visualMode === 'flat' || view.projection === '2d'
+
   const applyVisualMode = () => {
-    const flat = visualMode === 'flat'
+    const flat = isFlatLook()
 
     lineGlow.visible = !flat && lines.visible
     flowGlow.visible = !flat && flows.visible
@@ -119,10 +131,13 @@ export const createRouteLayer = (options: RouteLayerOptions): RouteLayer => {
     if (disposed || flowPositions.length === 0) return
 
     let flowSegmentIndex = 0
-    const flowColor =
-      visualMode === 'flat' && colorScheme === 'light' ? FLAT_LIGHT_FLOW_COLOR : FLOW_COLOR
-
     for (const runtime of runtimeRoutes) {
+      const flowColor = runtime.route.direct
+        ? DIRECT_FLOW_COLOR
+        : isFlatLook() && colorScheme === 'light'
+          ? FLAT_LIGHT_FLOW_COLOR
+          : FLOW_COLOR
+
       for (const direction of ['upload', 'download'] as const) {
         const rate = runtime.route[direction]
         const progressKey = `${runtime.route.key}:${direction}`
@@ -182,7 +197,7 @@ export const createRouteLayer = (options: RouteLayerOptions): RouteLayer => {
     }
 
     flowGeometry.instanceCount = flowSegmentIndex
-    flowGlow.visible = visualMode === 'space' && flowSegmentIndex > 0
+    flowGlow.visible = !isFlatLook() && flowSegmentIndex > 0
     flows.visible = flowSegmentIndex > 0
     if (flowPositionBuffer) flowPositionBuffer.needsUpdate = true
     if (flowColorBuffer) flowColorBuffer.needsUpdate = true
@@ -197,27 +212,29 @@ export const createRouteLayer = (options: RouteLayerOptions): RouteLayer => {
       const routePoints: THREE.Vector3[] = []
 
       for (let pathIndex = 0; pathIndex < route.path.length - 1; pathIndex += 1) {
-        const from = route.path[pathIndex]
-        const to = route.path[pathIndex + 1]
-        const arc = createGreatCircle(from, to)
+        const arc = createRouteArc(route.path[pathIndex], route.path[pathIndex + 1], view)
 
         routePoints.push(...(routePoints.length > 0 ? arc.slice(1) : arc))
+      }
 
-        for (let pointIndex = 0; pointIndex < arc.length - 1; pointIndex += 1) {
-          const start = arc[pointIndex]
-          const end = arc[pointIndex + 1]
-          const startProgress = pointIndex / (arc.length - 1)
-          const endProgress = (pointIndex + 1) / (arc.length - 1)
-          positions.push(start.x, start.y, start.z, end.x, end.y, end.z)
-          colors.push(
-            THREE.MathUtils.lerp(LINE_ORIGIN_COLOR.r, LINE_DESTINATION_COLOR.r, startProgress),
-            THREE.MathUtils.lerp(LINE_ORIGIN_COLOR.g, LINE_DESTINATION_COLOR.g, startProgress),
-            THREE.MathUtils.lerp(LINE_ORIGIN_COLOR.b, LINE_DESTINATION_COLOR.b, startProgress),
-            THREE.MathUtils.lerp(LINE_ORIGIN_COLOR.r, LINE_DESTINATION_COLOR.r, endProgress),
-            THREE.MathUtils.lerp(LINE_ORIGIN_COLOR.g, LINE_DESTINATION_COLOR.g, endProgress),
-            THREE.MathUtils.lerp(LINE_ORIGIN_COLOR.b, LINE_DESTINATION_COLOR.b, endProgress),
-          )
-        }
+      const lastIndex = routePoints.length - 1
+      const originColor = route.direct ? DIRECT_LINE_ORIGIN_COLOR : LINE_ORIGIN_COLOR
+      const destinationColor = route.direct ? DIRECT_LINE_DESTINATION_COLOR : LINE_DESTINATION_COLOR
+
+      for (let pointIndex = 0; pointIndex < lastIndex; pointIndex += 1) {
+        const start = routePoints[pointIndex]
+        const end = routePoints[pointIndex + 1]
+        const startProgress = pointIndex / lastIndex
+        const endProgress = (pointIndex + 1) / lastIndex
+        positions.push(start.x, start.y, start.z, end.x, end.y, end.z)
+        colors.push(
+          THREE.MathUtils.lerp(originColor.r, destinationColor.r, startProgress),
+          THREE.MathUtils.lerp(originColor.g, destinationColor.g, startProgress),
+          THREE.MathUtils.lerp(originColor.b, destinationColor.b, startProgress),
+          THREE.MathUtils.lerp(originColor.r, destinationColor.r, endProgress),
+          THREE.MathUtils.lerp(originColor.g, destinationColor.g, endProgress),
+          THREE.MathUtils.lerp(originColor.b, destinationColor.b, endProgress),
+        )
       }
 
       runtimeRoutes.push({ route, points: routePoints })
@@ -229,7 +246,7 @@ export const createRouteLayer = (options: RouteLayerOptions): RouteLayer => {
     if (positions.length > 0) {
       lineGeometry.setPositions(positions)
       lineGeometry.setColors(colors)
-      lineGlow.visible = visualMode === 'space'
+      lineGlow.visible = !isFlatLook()
       lines.visible = true
     } else {
       lineGlow.visible = false
@@ -267,6 +284,8 @@ export const createRouteLayer = (options: RouteLayerOptions): RouteLayer => {
     setSnapshot(snapshot, topologyChanged) {
       if (disposed) return
 
+      currentRoutes = snapshot.routes
+
       if (topologyChanged) {
         rebuildGeometry(snapshot.routes)
       } else {
@@ -283,6 +302,19 @@ export const createRouteLayer = (options: RouteLayerOptions): RouteLayer => {
         if (route.upload > 0) flowProgress.set(`${route.key}:upload`, 0)
         if (route.download > 0) flowProgress.set(`${route.key}:download`, 0)
       }
+      updateFlows(0, false)
+    },
+    setView(nextView) {
+      if (
+        disposed ||
+        (view.projection === nextView.projection &&
+          view.centerLongitude === nextView.centerLongitude)
+      ) {
+        return
+      }
+      view = nextView
+      rebuildGeometry(currentRoutes)
+      applyVisualMode()
       updateFlows(0, false)
     },
     setVisualMode(mode) {
@@ -302,7 +334,7 @@ export const createRouteLayer = (options: RouteLayerOptions): RouteLayer => {
     dispose() {
       if (disposed) return
       disposed = true
-      earthGroup.remove(lineGlow, lines, flowGlow, flows)
+      parent.remove(lineGlow, lines, flowGlow, flows)
       lineGeometry.dispose()
       lineGlowMaterial.dispose()
       lineMaterial.dispose()

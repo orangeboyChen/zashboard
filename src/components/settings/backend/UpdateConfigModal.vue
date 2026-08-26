@@ -59,7 +59,7 @@
 
 <script setup lang="ts">
 import { updateConfigsAPI } from '@/assembly/config'
-import { showNotification } from '@/helper/notification'
+import { notifyActionPending, showNotification } from '@/helper/notification'
 import { notifyRequestError } from '@/helper/requestError'
 import { fetchConfigs } from '@/assembly/config'
 import { fetchProxies } from '@/assembly/proxies'
@@ -88,6 +88,8 @@ const reloadAll = () => {
 const handleUpdateConfigs = async () => {
   if (isUpdating.value) return
   isUpdating.value = true
+  // 弹窗点完就关,按钮上的转圈跟着一起消失 —— 得留一条提示说明动作还在跑。
+  const notifyKey = notifyActionPending('updateConfigs')
   try {
     await updateConfigsAPI(
       { path: configPath.value, payload: configPayload.value },
@@ -96,11 +98,12 @@ const handleUpdateConfigs = async () => {
     reloadAll()
     modalValue.value = false
     showNotification({
+      key: notifyKey,
       content: 'updateConfigsSuccess',
       type: 'alert-success',
     })
   } catch (e) {
-    notifyRequestError(e)
+    notifyRequestError(e, notifyKey)
   } finally {
     isUpdating.value = false
   }

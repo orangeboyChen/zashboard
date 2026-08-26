@@ -51,6 +51,7 @@
 import { upgradeCoreAPI } from '@/assembly/version'
 import { handlerUpgradeSuccess } from '@/helper'
 import { showConfirmDialog } from '@/helper/confirmDialog'
+import { notifyActionPending } from '@/helper/notification'
 import { notifyRequestError } from '@/helper/requestError'
 import { fetchConfigs } from '@/assembly/config'
 import { fetchProxies } from '@/assembly/proxies'
@@ -95,13 +96,15 @@ const handlerClickUpgradeCore = async (type: 'release' | 'alpha' | 'auto') => {
 
   upgradingType.value = type
   isCoreUpgrading.value = true
+  // 弹窗点完就关,按钮上的转圈跟着一起消失 —— 得留一条提示说明动作还在跑。
+  const notifyKey = notifyActionPending(UPGRADE_LABELS[type])
   try {
     await upgradeCoreAPI(type)
     reloadAll()
     modalValue.value = false
-    handlerUpgradeSuccess()
+    handlerUpgradeSuccess(notifyKey)
   } catch (e) {
-    notifyRequestError(e)
+    notifyRequestError(e, notifyKey)
   } finally {
     isCoreUpgrading.value = false
   }

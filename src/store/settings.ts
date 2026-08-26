@@ -301,6 +301,7 @@ if (missingCards.length > 0) {
 
 export const earthIPInfoAPI = useStorage<IP_INFO_API>('config/earth-ip-info-api', IP_INFO_API.IPIP)
 export const earthVisualMode = useStorage<'flat' | 'space'>('config/earth-visual-mode', 'flat')
+export const earthProjection = useStorage<'3d' | '2d'>('config/earth-projection', '3d')
 export const topologyApplyConnectionFilter = useStorage(
   'config/topology-apply-connection-filter',
   true,

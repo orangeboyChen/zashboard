@@ -14,6 +14,14 @@ export interface EarthLocation {
   country: string
 }
 
+// A point in geographic space, kept projection-agnostic so the same sample can
+// be placed on the sphere or on the flat map. `altitude` is in sphere radii.
+export interface EarthSample {
+  latitude: number
+  longitude: number
+  altitude: number
+}
+
 export interface EarthLocationHint {
   latitude: number | null
   longitude: number | null
@@ -29,6 +37,7 @@ export interface EarthHostTraffic {
 export interface EarthRoute {
   key: string
   path: Array<EarthLocation & { role: EarthEndpointRole }>
+  direct: boolean
   connections: number
   upload: number
   download: number
