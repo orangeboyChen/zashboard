@@ -19,12 +19,13 @@ export const getRequestErrorMessage = (error: unknown): string => {
 }
 
 // 用 message 作为 key,同一个错误重复触发时复用同一条 toast,不会刷屏。
-export const notifyRequestError = (error: unknown) => {
+// 传 key 则顶掉那条(通常是 notifyActionPending 弹的「执行中」),免得两条并排。
+export const notifyRequestError = (error: unknown, key?: string) => {
   const message = getRequestErrorMessage(error)
   const url = axios.isAxiosError(error) ? decodeURIComponent(error.config?.url || '') : ''
 
   showNotification({
-    key: message,
+    key: key || message,
     content: url ? `${url} \n${message}` : message,
     type: 'alert-error',
   })

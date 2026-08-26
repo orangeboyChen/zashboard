@@ -1,6 +1,7 @@
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DObject, type CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js'
 import * as THREE from 'three/webgpu'
+import type { EarthView } from './projection'
 import type { EarthRenderEndpoint } from './rendererTypes'
 
 const CITY_LABEL_CLASS_NAME =
@@ -21,26 +22,29 @@ interface ProjectedCityLabel {
 }
 
 interface CityLabelLayerOptions {
-  earthGroup: THREE.Group
+  parent: THREE.Object3D
   camera: THREE.Camera
   controls: OrbitControls
   labelRenderer: CSS2DRenderer
+  view: EarthView
 }
 
 export interface CityLabelLayer {
   setEndpoints: (endpoints: readonly EarthRenderEndpoint[]) => void
+  setView: (view: EarthView) => void
   setVisible: (visible: boolean) => void
   updateVisibility: () => void
   dispose: () => void
 }
 
 export const createCityLabelLayer = (options: CityLabelLayerOptions): CityLabelLayer => {
-  const { camera, controls, earthGroup, labelRenderer } = options
+  const { camera, controls, parent, labelRenderer } = options
   const labelGroup = new THREE.Group()
-  earthGroup.add(labelGroup)
+  parent.add(labelGroup)
 
   const labels = new Map<string, CSS2DObject>()
   let endpoints: readonly EarthRenderEndpoint[] = []
+  let view = options.view
   let disposed = false
   const cameraWorldPosition = new THREE.Vector3()
   const earthWorldPosition = new THREE.Vector3()
@@ -101,9 +105,9 @@ export const createCityLabelLayer = (options: CityLabelLayerOptions): CityLabelL
     if (disposed) return
 
     camera.updateWorldMatrix(true, false)
-    earthGroup.updateWorldMatrix(true, true)
+    parent.updateWorldMatrix(true, true)
     camera.getWorldPosition(cameraWorldPosition)
-    earthGroup.getWorldPosition(earthWorldPosition)
+    parent.getWorldPosition(earthWorldPosition)
 
     const width = labelRenderer.domElement.clientWidth
     const height = labelRenderer.domElement.clientHeight
@@ -115,10 +119,14 @@ export const createCityLabelLayer = (options: CityLabelLayerOptions): CityLabelL
       if (!label) continue
       label.visible = false
       label.getWorldPosition(labelWorldPosition)
-      labelSurfaceNormal.subVectors(labelWorldPosition, earthWorldPosition).normalize()
-      labelToCamera.subVectors(cameraWorldPosition, labelWorldPosition)
 
-      if (labelSurfaceNormal.dot(labelToCamera) <= 0) continue
+      // The flat map has no far side, so the horizon test only applies to the globe.
+      if (view.projection === '3d') {
+        labelSurfaceNormal.subVectors(labelWorldPosition, earthWorldPosition).normalize()
+        labelToCamera.subVectors(cameraWorldPosition, labelWorldPosition)
+
+        if (labelSurfaceNormal.dot(labelToCamera) <= 0) continue
+      }
 
       projectedLabelPosition.copy(labelWorldPosition).project(camera)
       if (
@@ -188,6 +196,13 @@ export const createCityLabelLayer = (options: CityLabelLayerOptions): CityLabelL
       endpoints = nextEndpoints
       syncLabels()
     },
+    setView(nextView) {
+      if (disposed) return
+      view = nextView
+      // `endpointLayer` has already reprojected the shared Vector3 instances;
+      // this just copies the new positions across to the labels.
+      syncLabels()
+    },
     setVisible(visible) {
       if (disposed) return
       labelGroup.visible = visible
@@ -196,7 +211,7 @@ export const createCityLabelLayer = (options: CityLabelLayerOptions): CityLabelL
     dispose() {
       if (disposed) return
       disposed = true
-      earthGroup.remove(labelGroup)
+      parent.remove(labelGroup)
       labelGroup.clear()
       labels.clear()
       endpoints = []

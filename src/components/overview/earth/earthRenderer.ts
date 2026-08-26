@@ -5,13 +5,28 @@ import { createCityLabelLayer } from './cityLabelLayer'
 import { getRealtimeSunDirection, toEarthVector } from './earthMath'
 import { createEndpointLayer } from './endpointLayer'
 import { createGlobeLayer } from './globeLayer'
+import {
+  easeMorph,
+  PLANE_HALF_HEIGHT,
+  PLANE_HALF_WIDTH,
+  projectionMorph,
+  toLocalSample,
+  type EarthProjection,
+  type EarthView,
+} from './projection'
 import { createEarthRenderSnapshot } from './renderSnapshot'
 import type { EarthRenderer as EarthRendererContract, EarthRendererOptions } from './rendererTypes'
 import { createRouteLayer } from './routeLayer'
+import type { EarthLocation } from './types'
 
 export type { EarthRenderer } from './rendererTypes'
 
 const MAX_INITIAL_LATITUDE = 15
+const ORBIT_MIN_DISTANCE = 2.65
+const ORBIT_MAX_DISTANCE = 7.5
+const MORPH_DURATION = 0.8
+// A little breathing room so the map's edges are not flush with the viewport.
+const MAP_FIT_MARGIN = 1.05
 
 type Cleanup = () => void
 
@@ -74,13 +89,8 @@ export const createEarthRenderer = async (
 
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.enableDamping = true
-    controls.enablePan = false
-    controls.minDistance = 2.65
-    controls.maxDistance = 7.5
     controls.rotateSpeed = 0.55
     controls.zoomSpeed = 0.75
-    controls.touches.ONE = THREE.TOUCH.ROTATE
-    controls.touches.TWO = THREE.TOUCH.DOLLY_ROTATE
     // Keep browser scrolling/navigation gestures inside the canvas from competing
     // with OrbitControls on touch devices.
     renderer.domElement.style.touchAction = 'none'
@@ -90,15 +100,41 @@ export const createEarthRenderer = async (
     scene.add(earthGroup)
     registerCleanup(() => scene.remove(earthGroup))
 
+    // Everything that is not the globe itself lives here. The overlays do not
+    // take part in the sphere/plane morph, so the transition simply hides this
+    // group and rebuilds its contents in the target projection once it settles.
+    const overlayGroup = new THREE.Group()
+    earthGroup.add(overlayGroup)
+    registerCleanup(() => earthGroup.remove(overlayGroup))
+
     let reducedMotion = options.reducedMotion
+    let projection = options.projection
+    let view: EarthView = { projection, centerLongitude: 0 }
     let visualMode = options.visualMode
     let colorScheme = options.colorScheme
     let autoRotation = true
     let initialLocationSet = false
+    let pendingInitialLocation: EarthLocation | null = null
     let visible = !document.hidden
     let intersecting = true
     let pinnedEndpoint = false
     let currentSignature = ''
+    let morph = projectionMorph(projection)
+    let morphFrom = morph
+    let morphTo = morph
+    let morphElapsed = 0
+    let morphing = false
+    let rotationFrom = 0
+    let rotationTo = 0
+    // Where the globe was left when the map took over, so switching back returns
+    // to the same view instead of snapping to the prime meridian.
+    let orbitRotation = 0
+    const cameraFrom = new THREE.Vector3()
+    const cameraTo = new THREE.Vector3()
+    // Panning the flat map moves the orbit target, which has to travel back to
+    // the origin over the transition rather than snapping at the end of it.
+    const targetFrom = new THREE.Vector3()
+    const orbitCameraPosition = camera.position.clone()
     const clock = new THREE.Clock()
     const sunDirection = getRealtimeSunDirection()
 
@@ -112,29 +148,88 @@ export const createEarthRenderer = async (
     })
     registerCleanup(() => globeLayer.dispose())
 
-    const routeLayer = createRouteLayer({ earthGroup, visualMode, colorScheme })
+    const routeLayer = createRouteLayer({
+      parent: overlayGroup,
+      view,
+      visualMode,
+      colorScheme,
+    })
     registerCleanup(() => routeLayer.dispose())
 
     const endpointLayer = createEndpointLayer({
-      earthGroup,
+      parent: overlayGroup,
       camera,
+      view,
       visualMode,
       sunDirection,
     })
     registerCleanup(() => endpointLayer.dispose())
 
     const cityLabelLayer = createCityLabelLayer({
-      earthGroup,
+      parent: overlayGroup,
       camera,
       controls,
       labelRenderer,
+      view,
     })
     registerCleanup(() => cityLabelLayer.dispose())
 
-    const updateSunForTime = () => {
-      getRealtimeSunDirection(new Date(), sunDirection)
-      globeLayer.setSunDirection(sunDirection)
-      endpointLayer.setSunDirection(sunDirection)
+    // Distance at which the whole 2:1 map fits, whichever of the two axes is the
+    // binding constraint for the current viewport.
+    const mapDistance = () => {
+      const halfFov = THREE.MathUtils.degToRad(camera.fov) / 2
+      const fitHeight = PLANE_HALF_HEIGHT / Math.tan(halfFov)
+      const fitWidth = PLANE_HALF_WIDTH / (Math.tan(halfFov) * camera.aspect)
+
+      return Math.max(fitHeight, fitWidth) * MAP_FIT_MARGIN
+    }
+
+    const applyControls = () => {
+      if (projection === '2d') {
+        const distance = mapDistance()
+
+        controls.enableRotate = false
+        controls.enablePan = true
+        controls.screenSpacePanning = true
+        controls.mouseButtons.LEFT = THREE.MOUSE.PAN
+        controls.touches.ONE = THREE.TOUCH.PAN
+        controls.touches.TWO = THREE.TOUCH.DOLLY_PAN
+        controls.minDistance = distance * 0.35
+        controls.maxDistance = distance * 1.15
+      } else {
+        controls.enableRotate = true
+        controls.enablePan = false
+        controls.screenSpacePanning = false
+        controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE
+        controls.touches.ONE = THREE.TOUCH.ROTATE
+        controls.touches.TWO = THREE.TOUCH.DOLLY_ROTATE
+        controls.minDistance = ORBIT_MIN_DISTANCE
+        controls.maxDistance = ORBIT_MAX_DISTANCE
+      }
+    }
+
+    const applyView = () => {
+      routeLayer.setView(view)
+      endpointLayer.setView(view)
+      cityLabelLayer.setView(view)
+    }
+
+    const applyInitialLocation = (location: EarthLocation) => {
+      const distance = camera.position.distanceTo(controls.target)
+      const local = toLocalSample(location, 1, view)
+      const direction = toEarthVector({
+        latitude: THREE.MathUtils.clamp(
+          local.latitude,
+          -MAX_INITIAL_LATITUDE,
+          MAX_INITIAL_LATITUDE,
+        ),
+        longitude: local.longitude,
+      })
+        .applyQuaternion(earthGroup.quaternion)
+        .normalize()
+
+      camera.position.copy(controls.target).addScaledVector(direction, distance)
+      controls.update()
     }
 
     const render = () => {
@@ -145,18 +240,70 @@ export const createEarthRenderer = async (
       }
     }
 
+    const finishMorph = () => {
+      morphing = false
+      morph = morphTo
+      morphElapsed = 0
+      globeLayer.setMorph(morph)
+      earthGroup.rotation.y = rotationTo
+
+      applyView()
+
+      controls.target.set(0, 0, 0)
+      applyControls()
+      camera.position.copy(cameraTo)
+      camera.lookAt(controls.target)
+      controls.enabled = true
+      controls.update()
+      overlayGroup.visible = true
+
+      if (projection === '3d' && pendingInitialLocation) {
+        const location = pendingInitialLocation
+        pendingInitialLocation = null
+        applyInitialLocation(location)
+      }
+    }
+
+    const advanceMorph = (delta: number) => {
+      morphElapsed += delta
+
+      const progress = Math.min(1, morphElapsed / MORPH_DURATION)
+      const eased = easeMorph(progress)
+
+      morph = THREE.MathUtils.lerp(morphFrom, morphTo, eased)
+      globeLayer.setMorph(morph)
+      earthGroup.rotation.y = THREE.MathUtils.lerp(rotationFrom, rotationTo, eased)
+      controls.target.copy(targetFrom).multiplyScalar(1 - eased)
+      camera.position.lerpVectors(cameraFrom, cameraTo, eased)
+      camera.lookAt(controls.target)
+
+      if (progress >= 1) finishMorph()
+    }
+
     const animate = () => {
       if (disposed) return
 
       const elapsed = clock.getDelta()
       const delta = Math.min(0.05, elapsed)
-      if (autoRotation) earthGroup.rotation.y += delta * 0.025
+
+      if (morphing) {
+        advanceMorph(delta)
+      } else {
+        if (autoRotation && projection === '3d') earthGroup.rotation.y += delta * 0.025
+        controls.update(delta)
+      }
+
       endpointLayer.update(delta)
-      if (visualMode === 'space') globeLayer.syncSunLight()
-      controls.update(delta)
+      if (visualMode === 'space' && morph === 0) globeLayer.syncSunLight()
       routeLayer.update(elapsed)
 
       render()
+    }
+
+    const updateSunForTime = () => {
+      getRealtimeSunDirection(new Date(), sunDirection, view.centerLongitude)
+      globeLayer.setSunDirection(sunDirection)
+      endpointLayer.setSunDirection(sunDirection)
     }
 
     const updateAnimationLoop = () => {
@@ -165,9 +312,13 @@ export const createEarthRenderer = async (
       renderer.setAnimationLoop(null)
       clock.stop()
 
+      // Without a running loop there is nothing to drive the morph, so settle it
+      // immediately rather than leaving the overlays hidden mid-transition.
+      if (morphing && (reducedMotion || !visible || !intersecting)) finishMorph()
+
       if (!visible || !intersecting) return
 
-      if (visualMode === 'space') updateSunForTime()
+      if (visualMode === 'space' && morph === 0) updateSunForTime()
 
       if (reducedMotion) {
         controls.enableDamping = false
@@ -177,6 +328,33 @@ export const createEarthRenderer = async (
         clock.start()
         renderer.setAnimationLoop(animate)
       }
+    }
+
+    const startMorph = (next: EarthProjection) => {
+      // Only a settled globe is worth remembering: reversing mid-transition must
+      // keep the view the user actually left, not a half-unrolled camera.
+      if (projection === '3d' && !morphing) {
+        orbitCameraPosition.copy(camera.position)
+        orbitRotation = earthGroup.rotation.y
+      }
+
+      projection = next
+      view = { ...view, projection: next }
+      morphFrom = morph
+      morphTo = projectionMorph(next)
+      morphElapsed = 0
+      morphing = true
+      rotationFrom = earthGroup.rotation.y
+      rotationTo = next === '2d' ? 0 : orbitRotation
+      cameraFrom.copy(camera.position)
+      targetFrom.copy(controls.target)
+
+      if (next === '2d') cameraTo.set(0, 0, mapDistance())
+      else cameraTo.copy(orbitCameraPosition)
+
+      controls.enabled = false
+      overlayGroup.visible = false
+      updateAnimationLoop()
     }
 
     const showEndpoint = (event: PointerEvent, pin = false) => {
@@ -217,6 +395,14 @@ export const createEarthRenderer = async (
       camera.updateProjectionMatrix()
       renderer.setSize(width, height, false)
       labelRenderer.setSize(width, height)
+
+      // The fitted map distance depends on the aspect ratio, so the zoom range —
+      // and the pending morph destination — have to follow the viewport.
+      if (projection === '2d') {
+        applyControls()
+        if (morphing) cameraTo.set(0, 0, mapDistance())
+      }
+
       render()
     })
     resizeObserver.observe(container)
@@ -240,7 +426,7 @@ export const createEarthRenderer = async (
     registerCleanup(() => document.removeEventListener('visibilitychange', onVisibilityChange))
 
     const sunTimer = window.setInterval(() => {
-      if (visualMode === 'space') updateSunForTime()
+      if (visualMode === 'space' && morph === 0) updateSunForTime()
       if (reducedMotion) render()
     }, 60_000)
     registerCleanup(() => window.clearInterval(sunTimer))
@@ -251,6 +437,12 @@ export const createEarthRenderer = async (
     controls.addEventListener('change', onControlsChange)
     registerCleanup(() => controls.removeEventListener('change', onControlsChange))
 
+    globeLayer.setMorph(morph)
+    applyControls()
+    if (projection === '2d') {
+      camera.position.set(0, 0, mapDistance())
+      controls.update()
+    }
     updateAnimationLoop()
 
     return {
@@ -276,19 +468,18 @@ export const createEarthRenderer = async (
         }
 
         initialLocationSet = true
-        const distance = camera.position.distanceTo(controls.target)
-        const direction = toEarthVector({
-          latitude: THREE.MathUtils.clamp(
-            location.latitude,
-            -MAX_INITIAL_LATITUDE,
-            MAX_INITIAL_LATITUDE,
-          ),
-          longitude: location.longitude,
-        })
-          .applyQuaternion(earthGroup.quaternion)
-          .normalize()
-        camera.position.copy(controls.target).addScaledVector(direction, distance)
-        controls.update()
+        // Centring the world on the user applies to both projections: it is what
+        // puts them in the middle of the flat map, and it moves the seam to their
+        // antipode so their busiest routes are not the ones cut in half.
+        view = { ...view, centerLongitude: location.longitude }
+        globeLayer.setCenterLongitude(view.centerLongitude)
+        updateSunForTime()
+        applyView()
+
+        // Aiming the camera, on the other hand, only means anything on a globe.
+        if (projection === '2d' || morphing) pendingInitialLocation = location
+        else applyInitialLocation(location)
+
         render()
       },
       setReducedMotion(value) {
@@ -305,6 +496,10 @@ export const createEarthRenderer = async (
         cityLabelLayer.setVisible(nextVisible)
         render()
       },
+      setProjection(next) {
+        if (disposed || projection === next) return
+        startMorph(next)
+      },
       setVisualMode(mode) {
         if (disposed || visualMode === mode) return
         visualMode = mode
@@ -318,7 +513,7 @@ export const createEarthRenderer = async (
         colorScheme = scheme
         globeLayer.setColorScheme(scheme)
         routeLayer.setColorScheme(scheme)
-        if (visualMode === 'flat') render()
+        if (visualMode === 'flat' || projection === '2d') render()
       },
       dispose: disposeResources,
     }

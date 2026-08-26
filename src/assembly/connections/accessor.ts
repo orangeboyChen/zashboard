@@ -55,6 +55,8 @@ export interface ConnectionAccessor {
   outboundType(connection: Connection): string
   fromOutbound(connection: Connection): string
   // 仅 clash 支持的 smart 降级标记;sing-box 返回 undefined。
+  isDirect(connection: Connection): boolean
+  // smart 内核的降级标记;非 smart 时为 undefined。
   smartBlock(connection: Connection): string | undefined
 }
 

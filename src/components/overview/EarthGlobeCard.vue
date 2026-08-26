@@ -8,7 +8,17 @@
         {{ t('earthGlobeTitle') }}
       </div>
       <div class="flex items-center gap-1">
+        <SegmentedControl
+          :title="t('earthProjection')"
+          :model-value="earthProjection"
+          :options="[
+            { value: '3d', label: '3D' },
+            { value: '2d', label: '2D' },
+          ]"
+          @update:model-value="earthProjection = $event as '3d' | '2d'"
+        />
         <SelectInput
+          v-if="!isFlatMap"
           v-model="earthVisualMode"
           class="select select-ghost select-sm h-8 min-h-8 w-auto border-0"
           :aria-label="t('earthVisualStyle')"
@@ -31,6 +41,7 @@
           />
         </button>
         <button
+          v-if="!isFlatMap"
           class="btn btn-ghost btn-sm btn-square"
           :aria-label="t(rotationPaused ? 'earthResumeRotation' : 'earthPauseRotation')"
           :title="t(rotationPaused ? 'earthResumeRotation' : 'earthPauseRotation')"
@@ -67,10 +78,7 @@
 
     <div
       class="relative mt-2 w-full overflow-hidden rounded-xl"
-      :class="[
-        expanded ? 'min-h-0 flex-1' : 'h-96',
-        earthVisualMode === 'flat' ? 'bg-base-200/30' : 'bg-black',
-      ]"
+      :class="[expanded ? 'min-h-0 flex-1' : 'h-96', flatLook ? 'bg-base-200/30' : 'bg-black']"
     >
       <div
         ref="canvasRef"
@@ -122,11 +130,11 @@
 
       <div
         class="absolute bottom-2 left-2 flex flex-col items-start gap-0.5 text-[10px]"
-        :class="earthVisualMode === 'flat' ? 'text-base-content/55' : 'text-white/65'"
+        :class="flatLook ? 'text-base-content/55' : 'text-white/65'"
       >
         <a
           class="hover:underline"
-          :class="earthVisualMode === 'flat' ? 'hover:text-base-content' : 'hover:text-white'"
+          :class="flatLook ? 'hover:text-base-content' : 'hover:text-white'"
           href="https://db-ip.com/db/lite.php"
           target="_blank"
           rel="noopener noreferrer"
@@ -135,7 +143,7 @@
         </a>
         <a
           class="hover:underline"
-          :class="earthVisualMode === 'flat' ? 'hover:text-base-content' : 'hover:text-white'"
+          :class="flatLook ? 'hover:text-base-content' : 'hover:text-white'"
           href="https://www.solarsystemscope.com/textures/"
           target="_blank"
           rel="noopener noreferrer"
@@ -304,14 +312,16 @@
 </template>
 
 <script setup lang="ts">
+import SegmentedControl from '@/components/common/SegmentedControl.vue'
 import SelectInput from '@/components/common/SelectInput.vue'
+import { queryDNSAPI } from '@/assembly/config'
 import { getPublicIPInfo, type IPInfo } from '@/api/geoip'
 import { getCachedPublicIPInfo } from '@/composables/overview'
 import { IP_INFO_API } from '@/constant'
 import { themeColorScheme } from '@/helper/theme'
 import { prettyBytesHelper } from '@/helper/utils'
 import { activeConnections } from '@/store/connections'
-import { earthIPInfoAPI, earthVisualMode, language, theme } from '@/store/settings'
+import { earthIPInfoAPI, earthProjection, earthVisualMode, language, theme } from '@/store/settings'
 import {
   ArrowPathIcon,
   ArrowsPointingInIcon,
@@ -324,6 +334,7 @@ import {
 } from '@heroicons/vue/24/outline'
 import { useMediaQuery } from '@vueuse/core'
 import * as ipaddr from 'ipaddr.js'
+import pLimit from 'p-limit'
 import type { CSSProperties } from 'vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -363,6 +374,9 @@ const hoveredEndpoint = ref<EarthEndpointInfo | null>(null)
 const tooltipPosition = ref({ x: 0, y: 0 })
 const reducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
 const locationCache = new Map<string, EarthLocation | null>()
+const dnsCache = new Map<string, { ip: string | null; expiresAt: number }>()
+const dnsRequests = new Map<string, Promise<string | null>>()
+const dnsLookupLimit = pLimit(6)
 const lookupRequests = new Map<number, (locations: Record<string, EarthLocation | null>) => void>()
 let lookupID = 0
 let worker: Worker | null = null
@@ -382,6 +396,14 @@ let initIdleHandle: number | null = null
 
 const isValidIP = (value: string) => Boolean(value && ipaddr.isValid(value))
 
+const normalizeIP = (value: string) => {
+  try {
+    return ipaddr.parse(value).toNormalizedString()
+  } catch {
+    return null
+  }
+}
+
 const maskIP = (value: string) => {
   if (!isValidIP(value)) return '—'
 
@@ -395,6 +417,11 @@ const maskIP = (value: string) => {
   const parts = address.toNormalizedString().split(':')
   return `${parts[0]}:${parts[1]}:****:****`
 }
+
+const isFlatMap = computed(() => earthProjection.value === '2d')
+// The 2D map always uses the flat palette, so it shares the light chrome that
+// the flat globe style uses.
+const flatLook = computed(() => isFlatMap.value || earthVisualMode.value === 'flat')
 
 const displayedOriginIP = computed(() => {
   if (originStatus.value === 'loading') return t('getting')
@@ -436,6 +463,61 @@ const tooltipStyle = computed<CSSProperties>(() => ({
 }))
 
 const postWorker = (message: GeoWorkerRequest) => worker?.postMessage(message)
+
+const resolveHostname = (hostname: string) => {
+  const cached = dnsCache.get(hostname)
+
+  if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.ip)
+
+  const pending = dnsRequests.get(hostname)
+
+  if (pending) return pending
+
+  const request = dnsLookupLimit(async () => {
+    for (const { type, answerType } of [
+      { type: 'A', answerType: 1 },
+      { type: 'AAAA', answerType: 28 },
+    ]) {
+      try {
+        const { data } = await queryDNSAPI({ name: hostname, type })
+
+        for (const answer of data.Answer ?? []) {
+          const ip = answer.type === answerType ? normalizeIP(answer.data) : null
+
+          if (!ip) continue
+
+          dnsCache.set(hostname, {
+            ip,
+            expiresAt: Date.now() + Math.max(1, answer.TTL) * 1000,
+          })
+          return ip
+        }
+      } catch {
+        // Automatic DNS lookups are best-effort; one failed family may still leave the other usable.
+      }
+    }
+
+    dnsCache.set(hostname, { ip: null, expiresAt: Date.now() + 30_000 })
+    return null
+  }).finally(() => dnsRequests.delete(hostname))
+
+  dnsRequests.set(hostname, request)
+  return request
+}
+
+const resolveDestinationIPs = async (hostnames: string[]) => {
+  const entries = await Promise.all(
+    hostnames.map(async (hostname) => [hostname, await resolveHostname(hostname)] as const),
+  )
+
+  while (dnsCache.size > 4096) {
+    const oldest = dnsCache.keys().next().value
+    if (oldest === undefined) break
+    dnsCache.delete(oldest)
+  }
+
+  return Object.fromEntries(entries)
+}
 
 const lookupLocations = async (ips: string[], locale: string) => {
   const result: Record<string, EarthLocation | null> = {}
@@ -506,6 +588,7 @@ const refreshRoutes = async () => {
         language.value,
         lookupLocations,
         preferredOrigin,
+        resolveDestinationIPs,
       )
 
       if (
@@ -639,6 +722,7 @@ watch(language, () => {
   scheduleRouteRefresh()
 })
 watch(reducedMotion, (value) => renderer.value?.setReducedMotion(value))
+watch(earthProjection, (value) => renderer.value?.setProjection(value))
 watch(earthVisualMode, (value) => renderer.value?.setVisualMode(value))
 watch(
   theme,
@@ -665,6 +749,7 @@ const initialize = async () => {
     if (!canvasRef.value || disposed) return
     const createdRenderer = await createEarthRenderer(canvasRef.value, {
       reducedMotion: reducedMotion.value,
+      projection: earthProjection.value,
       visualMode: earthVisualMode.value,
       colorScheme: themeColorScheme.value,
       onEndpointHover: handleEndpointHover,
@@ -723,6 +808,8 @@ onBeforeUnmount(() => {
   worker?.removeEventListener('message', handleWorkerMessage)
   worker?.terminate()
   worker = null
+  dnsCache.clear()
+  dnsRequests.clear()
   lookupRequests.clear()
 })
 </script>

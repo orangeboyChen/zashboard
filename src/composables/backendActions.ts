@@ -22,7 +22,7 @@ import { restartCoreAPI } from '@/assembly/version'
 import { isSettingHidden } from '@/composables/settings'
 import { BACKEND_ITEM_KEYS } from '@/config/settingsItems'
 import { showConfirmDialog } from '@/helper/confirmDialog'
-import { showNotification } from '@/helper/notification'
+import { notifyActionPending, showNotification } from '@/helper/notification'
 import { notifyRequestError } from '@/helper/requestError'
 import { i18n } from '@/i18n'
 import { activeBackend } from '@/store/setup'
@@ -68,6 +68,8 @@ const isFakeIPFlushing = ref(false)
 const isSmartWeightsFlushing = ref(false)
 
 const runOnce = async (
+  /** 动作名的 i18n key,用来写「执行中」那条提示 */
+  label: string,
   running: Ref<boolean>,
   request: () => Promise<unknown>,
   successMessage: string,
@@ -84,15 +86,19 @@ const runOnce = async (
     if (!confirmed) return
   }
   running.value = true
+  // 清缓存这类动作几十毫秒就回来,按钮上的转圈只是闪一下 —— 先弹提示占住位置,
+  // 结果出来再用同一个 key 顶掉它。
+  const notifyKey = notifyActionPending(label)
   try {
     await request()
     afterSuccess?.()
     showNotification({
+      key: notifyKey,
       content: successMessage,
       type: 'alert-success',
     })
   } catch (e) {
-    notifyRequestError(e)
+    notifyRequestError(e, notifyKey)
   } finally {
     running.value = false
   }
@@ -125,6 +131,7 @@ export const backendActions = computed<BackendAction[]>(() => {
       // 内核重启完才有东西可拉,立刻打过去只会撞在重启的空档上。
       run: () =>
         runOnce(
+          'restartCore',
           isCoreRestarting,
           restartCoreAPI,
           'restartCoreSuccess',
@@ -142,7 +149,14 @@ export const backendActions = computed<BackendAction[]>(() => {
       running: isConfigReloading.value,
       opensModal: false,
       // 重载配置不动连接、也不重启内核,代价小到不值得一次确认。
-      run: () => runOnce(isConfigReloading, reloadConfigsAPI, 'reloadConfigsSuccess', reloadAll),
+      run: () =>
+        runOnce(
+          'reloadConfigs',
+          isConfigReloading,
+          reloadConfigsAPI,
+          'reloadConfigsSuccess',
+          reloadAll,
+        ),
     })
   }
 
@@ -164,7 +178,14 @@ export const backendActions = computed<BackendAction[]>(() => {
       icon: ArrowDownTrayIcon,
       running: isGeoUpdating.value,
       opensModal: false,
-      run: () => runOnce(isGeoUpdating, updateGeoDataAPI, 'updateGeoSuccess', reloadAll),
+      run: () =>
+        runOnce(
+          'updateGeoDatabase',
+          isGeoUpdating,
+          updateGeoDataAPI,
+          'updateGeoSuccess',
+          reloadAll,
+        ),
     })
   }
 
@@ -175,7 +196,8 @@ export const backendActions = computed<BackendAction[]>(() => {
       icon: TrashIcon,
       running: isDNSCacheFlushing.value,
       opensModal: false,
-      run: () => runOnce(isDNSCacheFlushing, flushDNSCacheAPI, 'flushDNSCacheSuccess'),
+      run: () =>
+        runOnce('flushDNSCache', isDNSCacheFlushing, flushDNSCacheAPI, 'flushDNSCacheSuccess'),
     })
   }
 
@@ -186,7 +208,7 @@ export const backendActions = computed<BackendAction[]>(() => {
       icon: TrashIcon,
       running: isFakeIPFlushing.value,
       opensModal: false,
-      run: () => runOnce(isFakeIPFlushing, flushFakeIPAPI, 'flushFakeIPSuccess'),
+      run: () => runOnce('flushFakeIP', isFakeIPFlushing, flushFakeIPAPI, 'flushFakeIPSuccess'),
     })
   }
 
@@ -198,7 +220,12 @@ export const backendActions = computed<BackendAction[]>(() => {
       running: isSmartWeightsFlushing.value,
       opensModal: false,
       run: () =>
-        runOnce(isSmartWeightsFlushing, flushSmartGroupWeightsAPI, 'flushSmartWeightsSuccess'),
+        runOnce(
+          'flushSmartWeights',
+          isSmartWeightsFlushing,
+          flushSmartGroupWeightsAPI,
+          'flushSmartWeightsSuccess',
+        ),
     })
   }
 

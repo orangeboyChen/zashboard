@@ -36,29 +36,8 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
 
-  create-release:
+  build-dist:
     needs: prepare-version
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check existing release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.prepare-version.outputs.tag }}
-          OVERWRITE: ${{ inputs.overwrite }}
-        run: |
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && [[ "$OVERWRITE" != "true" ]]; then
-            echo "Release $TAG already exists. Set overwrite=true to replace it."
-            exit 1
-          fi
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ needs.prepare-version.outputs.tag }}
-          name: ${{ needs.prepare-version.outputs.tag }}
-          generate_release_notes: true
-
-  release-dist:
-    needs: [prepare-version, create-release]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -93,17 +72,42 @@ jobs:
           printf '%s\n' 'board.zash.run.place' > dist/CNAME
           tar -czf zashboard.tar.gz -C dist .
 
-      - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v3
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
         with:
-          files: dist${{ matrix.font.suffix }}.zip
-          tag_name: ${{ needs.prepare-version.outputs.tag }}
-          overwrite_files: ${{ inputs.overwrite }}
+          name: release-${{ matrix.font.key }}
+          path: |
+            dist${{ matrix.font.suffix }}.zip
+            zashboard.tar.gz
 
-      - name: Upload ShellCrash archive
-        if: matrix.font.key == 'all'
+  publish-release:
+    needs: [prepare-version, build-dist]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Check existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare-version.outputs.tag }}
+          OVERWRITE: ${{ inputs.overwrite }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && [[ "$OVERWRITE" != "true" ]]; then
+            echo "Release $TAG already exists. Set overwrite=true to replace it."
+            exit 1
+          fi
+
+      - name: Publish release and assets
         uses: softprops/action-gh-release@v3
         with:
-          files: zashboard.tar.gz
+          files: |
+            dist*.zip
+            zashboard.tar.gz
           tag_name: ${{ needs.prepare-version.outputs.tag }}
+          name: ${{ needs.prepare-version.outputs.tag }}
+          generate_release_notes: true
           overwrite_files: ${{ inputs.overwrite }}

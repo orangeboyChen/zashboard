@@ -216,6 +216,7 @@ export const connectionAccessor: ConnectionAccessor = {
   protocol: (connection) => asSingbox(connection).protocol,
   outboundType: (connection) => asSingbox(connection).outboundType,
   fromOutbound: (connection) => asSingbox(connection).fromOutbound,
+  isDirect: (connection) => asSingbox(connection).outboundType === 'direct',
   smartBlock: () => undefined,
 }
 

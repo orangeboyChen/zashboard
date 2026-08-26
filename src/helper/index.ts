@@ -163,8 +163,9 @@ export const isHiddenGroup = (group: string) => {
   return proxyMap.value[group]?.hidden
 }
 
-export const handlerUpgradeSuccess = () => {
+export const handlerUpgradeSuccess = (key?: string) => {
   showNotification({
+    key,
     content: 'upgradeSuccess',
     type: 'alert-success',
   })
