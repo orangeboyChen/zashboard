@@ -42,7 +42,7 @@ GitHub Actions checks `Zephyruso/zashboard` for a new release every 30 minutes. 
 
 Configure these repository Actions secrets before enabling the workflow:
 
-- `LLM_API_ENDPOINT`: the complete API base URL, optionally ending in `/chat/completions`
+- `LLM_API_ENDPOINT`: a Responses API-compatible endpoint, typically ending in `/responses`
 - `LLM_API_KEY`: API key for the third-party provider
 - `LLM_MODEL`: model name accepted by the provider
 
