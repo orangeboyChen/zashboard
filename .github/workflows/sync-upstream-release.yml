@@ -35,9 +35,6 @@ jobs:
         id: sync
         env:
           GH_TOKEN: ${{ github.token }}
-          LLM_API_ENDPOINT: ${{ secrets.LLM_API_ENDPOINT }}
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          LLM_MODEL: ${{ secrets.LLM_MODEL }}
         run: |
           set -euo pipefail
           tag="$(gh api repos/Zephyruso/zashboard/releases/latest --jq .tag_name)"
