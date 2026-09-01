@@ -36,6 +36,16 @@ release:
 - [dist-pingfang-only.zip (3.25 MB)](https://github.com/Zephyruso/zashboard/releases/latest/download/dist-pingfang-only.zip) – Only with PingFang Font
 - [dist-sarasa-only.zip (3.67 MB)](https://github.com/Zephyruso/zashboard/releases/latest/download/dist-sarasa-only.zip) – Only with Sarasa Font
 
+### Upstream release synchronization
+
+GitHub Actions checks `Zephyruso/zashboard` for a new release every 30 minutes. A new upstream tag creates a synchronization pull request; after it is merged, the matching release and distribution archives are built automatically. Merge conflicts are sent to the configured OpenAI-compatible endpoint for resolution.
+
+Configure these repository Actions secrets before enabling the workflow:
+
+- `LLM_API_ENDPOINT`: the complete API base URL, optionally ending in `/chat/completions`
+- `LLM_API_KEY`: API key for the third-party provider
+- `LLM_MODEL`: model name accepted by the provider
+
 dev:
 
 - [gh-pages.zip (7.81 MB)](https://github.com/Zephyruso/zashboard/archive/refs/heads/gh-pages.zip)
