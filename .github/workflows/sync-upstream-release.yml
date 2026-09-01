@@ -1,0 +1,125 @@
+name: Sync upstream release
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-upstream-release
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.sync.outputs.tag }}
+      changed: ${{ steps.publish.outputs.changed }}
+    steps:
+      - name: Check out local main
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Configure git remotes
+        run: |
+          git remote add upstream https://github.com/Zephyruso/zashboard.git
+          git fetch --prune upstream --tags
+          git fetch origin main
+
+      - name: Sync latest upstream release
+        id: sync
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LLM_API_ENDPOINT: ${{ secrets.LLM_API_ENDPOINT }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL }}
+        run: |
+          set -euo pipefail
+          tag="$(gh api repos/Zephyruso/zashboard/releases/latest --jq .tag_name)"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Unexpected upstream release tag: $tag"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Release $tag is already present locally."
+            exit 0
+          fi
+
+          branch="automation/upstream-$tag"
+          if [[ "$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state open --json number --jq 'length')" != "0" ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "An open synchronization pull request already exists for $tag."
+            exit 0
+          fi
+          git switch --create "$branch" origin/main
+          if git merge --no-edit "refs/tags/$tag"; then
+            echo "conflict=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve merge conflicts with Codex
+        if: steps.sync.outputs.conflict == 'true'
+        uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e
+        with:
+          prompt: |
+            Resolve every Git merge conflict in this checkout. Inspect the conflict markers, preserve the local project's behavior, and incorporate the upstream release changes. Edit the files directly, remove all conflict markers, run the relevant validation, and stage the resolved files with git add. Do not modify secrets or files outside the repository.
+          openai-api-key: ${{ secrets.LLM_API_KEY }}
+          responses-api-endpoint: ${{ secrets.LLM_API_ENDPOINT }}
+          model: ${{ secrets.LLM_MODEL }}
+          permission-profile: ':workspace'
+          allow-bots: true
+
+      - name: Commit resolved synchronization
+        if: steps.sync.outputs.conflict == 'true'
+        run: |
+          set -euo pipefail
+          if git diff --name-only --diff-filter=U | grep -q .; then
+            echo "Codex left unresolved merge conflicts."
+            exit 1
+          fi
+          git diff --check
+          git add --all
+          git commit -m "chore: sync upstream release ${{ steps.sync.outputs.tag }}"
+
+      - name: Publish synchronization branch
+        id: publish
+        if: steps.sync.outputs.tag != ''
+        env:
+          TAG: ${{ steps.sync.outputs.tag }}
+        run: |
+          set -euo pipefail
+          branch="automation/upstream-$TAG"
+
+          if git diff --quiet origin/main...HEAD; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git push --set-upstream origin "$branch"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Open synchronization pull request
+        if: steps.publish.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.sync.outputs.tag }}
+        run: |
+          set -euo pipefail
+          branch="automation/upstream-$TAG"
+          if gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state open --json number --jq 'length' | grep -q '^0$'; then
+            gh pr create \
+              --repo "$GITHUB_REPOSITORY" \
+              --base main \
+              --head "$branch" \
+              --title "chore: sync upstream release $TAG" \
+              --body "Sync upstream zashboard $TAG. Merging this pull request automatically builds and publishes the matching GitHub Release."
+          fi
