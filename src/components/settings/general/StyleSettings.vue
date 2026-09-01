@@ -60,6 +60,19 @@
           :options="Object.values(EMOJIS).map((value) => ({ value, label: value }))"
         />
       </SettingItem>
+      <SettingItem :setting-key="k.customCSS">
+        <div class="setting-item-label">
+          {{ $t('customCSS') }}
+        </div>
+        <button
+          class="btn btn-sm"
+          :class="customCSS && 'btn-primary'"
+          @click="customCSSModal = !customCSSModal"
+        >
+          <PencilSquareIcon class="h-4 w-4" />
+        </button>
+        <CustomCSS v-model:value="customCSSModal" />
+      </SettingItem>
     </div>
   </template>
 </template>
@@ -70,18 +83,21 @@ import SelectInput from '@/components/common/SelectInput.vue'
 import { useIsSettingVisible } from '@/composables/settings'
 import { GENERAL_ITEM_KEYS } from '@/config/settingsItems'
 import { EMOJIS, FONTS } from '@/constant'
-import { autoTheme, darkTheme, defaultTheme, emoji, font } from '@/store/settings'
-import { PlusIcon } from '@heroicons/vue/24/outline'
+import { autoTheme, customCSS, darkTheme, defaultTheme, emoji, font } from '@/store/settings'
+import { PencilSquareIcon, PlusIcon } from '@heroicons/vue/24/outline'
 import { computed, ref } from 'vue'
 import BackgroundSettings from './BackgroundSettings.vue'
+import CustomCSS from './CustomCSS.vue'
 import CustomTheme from './CustomTheme.vue'
 import ThemeSelector from './ThemeSelector.vue'
 
 const customThemeModal = ref(false)
+const customCSSModal = ref(false)
 
 const k = GENERAL_ITEM_KEYS
 const isVisibleFonts = useIsSettingVisible(k.fonts)
 const isVisibleEmoji = useIsSettingVisible(k.emoji)
+const isVisibleCustomCSS = useIsSettingVisible(k.customCSS)
 const isVisibleCustomBackgroundURL = useIsSettingVisible(k.customBackgroundURL)
 const isVisibleDefaultTheme = useIsSettingVisible(k.defaultTheme)
 const isVisibleDarkTheme = useIsSettingVisible(k.darkTheme)
@@ -94,7 +110,8 @@ const hasVisibleStyleItems = computed(() => {
     (autoTheme.value && isVisibleDarkTheme.value) ||
     isVisibleCustomBackgroundURL.value ||
     isVisibleFonts.value ||
-    isVisibleEmoji.value
+    isVisibleEmoji.value ||
+    isVisibleCustomCSS.value
   )
 })
 

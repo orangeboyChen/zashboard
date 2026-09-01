@@ -27,6 +27,8 @@ const ORBIT_MAX_DISTANCE = 7.5
 const MORPH_DURATION = 0.8
 // A little breathing room so the map's edges are not flush with the viewport.
 const MAP_FIT_MARGIN = 1.05
+// The flat map starts zoomed in a touch past its fitted distance.
+const MAP_DEFAULT_ZOOM = 1.2
 
 type Cleanup = () => void
 
@@ -183,6 +185,9 @@ export const createEarthRenderer = async (
 
       return Math.max(fitHeight, fitWidth) * MAP_FIT_MARGIN
     }
+
+    // Where the camera rests when the flat map is entered or refitted.
+    const mapViewDistance = () => mapDistance() / MAP_DEFAULT_ZOOM
 
     const applyControls = () => {
       if (projection === '2d') {
@@ -349,7 +354,7 @@ export const createEarthRenderer = async (
       cameraFrom.copy(camera.position)
       targetFrom.copy(controls.target)
 
-      if (next === '2d') cameraTo.set(0, 0, mapDistance())
+      if (next === '2d') cameraTo.set(0, 0, mapViewDistance())
       else cameraTo.copy(orbitCameraPosition)
 
       controls.enabled = false
@@ -391,6 +396,13 @@ export const createEarthRenderer = async (
       const width = Math.max(1, entry.contentRect.width)
       const height = Math.max(1, entry.contentRect.height)
 
+      // How far the settled map is zoomed in relative to its fitted distance, so
+      // the viewport can change without the camera drifting to another zoom.
+      const zoomRatio =
+        projection === '2d' && !morphing
+          ? camera.position.distanceTo(controls.target) / mapDistance()
+          : 0
+
       camera.aspect = width / height
       camera.updateProjectionMatrix()
       renderer.setSize(width, height, false)
@@ -400,7 +412,12 @@ export const createEarthRenderer = async (
       // and the pending morph destination — have to follow the viewport.
       if (projection === '2d') {
         applyControls()
-        if (morphing) cameraTo.set(0, 0, mapDistance())
+        if (morphing) {
+          cameraTo.set(0, 0, mapViewDistance())
+        } else {
+          camera.position.z = mapDistance() * zoomRatio
+          controls.update()
+        }
       }
 
       render()
@@ -440,7 +457,7 @@ export const createEarthRenderer = async (
     globeLayer.setMorph(morph)
     applyControls()
     if (projection === '2d') {
-      camera.position.set(0, 0, mapDistance())
+      camera.position.set(0, 0, mapViewDistance())
       controls.update()
     }
     updateAnimationLoop()

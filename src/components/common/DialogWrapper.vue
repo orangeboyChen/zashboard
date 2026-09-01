@@ -7,6 +7,7 @@
     <Transition
       name="modal"
       :duration="350"
+      @after-leave="resetSwipe"
     >
       <div
         v-show="isOpen"
@@ -21,6 +22,7 @@
         <div
           class="modal-backdrop w-screen"
           aria-hidden="true"
+          :style="backdropSwipeStyle"
           @click="close"
         />
 
@@ -29,9 +31,15 @@
           ref="modalBoxRef"
           class="modal-box bg-base-100 relative flex flex-col overflow-hidden p-0 outline-none max-md:max-h-[85dvh] max-md:min-h-[40dvh]"
           :class="[blurIntensity < 5 && 'backdrop-blur-sm!', boxClass]"
+          :style="boxSwipeStyle"
           tabindex="-1"
           @click.stop
           @keydown.enter.self="enter"
+          @touchstart="onTouchStart"
+          @touchmove="onTouchMove"
+          @touchend="onTouchEnd"
+          @touchcancel="onTouchCancel"
+          @transitionend.self="onBoxTransitionEnd"
         >
           <div
             v-if="title && isOpen"
@@ -78,7 +86,16 @@
 import { useDialogOpenState } from '@/composables/dialog'
 import { blurIntensity } from '@/store/settings'
 import { XMarkIcon } from '@heroicons/vue/24/outline'
-import { ref, watch } from 'vue'
+import { computed, ref, watch, type CSSProperties } from 'vue'
+
+const MOBILE_MEDIA_QUERY = '(width < 48rem)'
+const DIRECTION_LOCK_DISTANCE = 10
+const VERTICAL_DOMINANCE_RATIO = 1.2
+const MIN_FLING_DISTANCE = 48
+const CLOSE_VELOCITY = 0.5
+const SWIPE_TRANSITION = 'transform 0.35s cubic-bezier(0.32, 0.72, 0, 1)'
+
+type SwipeState = 'idle' | 'pending' | 'dragging' | 'settling' | 'dismissing' | 'rejected'
 
 const isOpen = defineModel<boolean>()
 defineProps<{
@@ -91,17 +108,214 @@ const emits = defineEmits<{
 }>()
 
 const modalBoxRef = ref<HTMLDivElement | undefined>(undefined)
+const swipeState = ref<SwipeState>('idle')
+const swipeOffset = ref(0)
+const swipeAnimating = ref(false)
+
+let startX = 0
+let startY = 0
+let startTime = 0
+let endY = 0
+
+const swipeProgress = computed(() => {
+  const height = modalBoxRef.value?.offsetHeight || 1
+  return Math.min(swipeOffset.value / height, 1)
+})
+
+const boxSwipeStyle = computed<CSSProperties | undefined>(() => {
+  if (
+    swipeState.value !== 'dragging' &&
+    swipeState.value !== 'settling' &&
+    swipeState.value !== 'dismissing'
+  )
+    return
+
+  return {
+    transform: `translate3d(0, ${swipeOffset.value}px, 0)`,
+    transition: swipeAnimating.value ? SWIPE_TRANSITION : 'none',
+    willChange: 'transform',
+  }
+})
+
+const backdropSwipeStyle = computed<CSSProperties | undefined>(() => {
+  if (
+    swipeState.value !== 'dragging' &&
+    swipeState.value !== 'settling' &&
+    swipeState.value !== 'dismissing'
+  )
+    return
+
+  return {
+    opacity: 1 - swipeProgress.value,
+    transition: swipeAnimating.value ? 'opacity 0.25s ease-out' : 'none',
+  }
+})
 
 // 记账「当前有几个弹窗打开着」，并在打开期间跟踪可视视口高度（软键盘）。
 useDialogOpenState(isOpen)
 
 watch(isOpen, (val) => {
   if (val) {
+    resetSwipe()
     requestAnimationFrame(() => {
       modalBoxRef.value?.focus()
     })
+  } else if (swipeState.value !== 'dismissing') {
+    // 通过按钮、遮罩或父组件关闭时，清掉可能尚未结束的回弹状态，交还给标准离场动画。
+    resetSwipe()
   }
 })
+
+function isAtTopOfScrollableAncestors(target: EventTarget | null) {
+  const modalBox = modalBoxRef.value
+  let element = target instanceof Element ? target : null
+
+  while (element && element !== modalBox) {
+    if (element instanceof HTMLElement) {
+      const { overflowY } = getComputedStyle(element)
+      const isScrollable =
+        (overflowY === 'auto' || overflowY === 'scroll') &&
+        element.scrollHeight > element.clientHeight
+
+      // 一旦触点所在的任意滚动层还有内容可向上回滚，就把整次手势留给原生滚动。
+      // 即使它在本次手势中途滚到顶部，也不接管，避免内容突然变成拖动弹窗。
+      if (isScrollable && element.scrollTop > 0) return false
+    }
+    element = element.parentElement
+  }
+
+  return true
+}
+
+function onTouchStart(event: TouchEvent) {
+  if (swipeState.value === 'dragging') {
+    settleSwipe()
+    return
+  }
+  if (swipeState.value !== 'idle') return
+
+  if (
+    !isOpen.value ||
+    !window.matchMedia(MOBILE_MEDIA_QUERY).matches ||
+    event.touches.length !== 1
+  ) {
+    swipeState.value = 'rejected'
+    return
+  }
+
+  const touch = event.touches[0]
+  startX = touch.clientX
+  startY = touch.clientY
+  endY = startY
+  startTime = performance.now()
+  swipeState.value = isAtTopOfScrollableAncestors(event.target) ? 'pending' : 'rejected'
+}
+
+function onTouchMove(event: TouchEvent) {
+  if (swipeState.value !== 'pending' && swipeState.value !== 'dragging') return
+  if (event.touches.length !== 1) {
+    onTouchCancel()
+    return
+  }
+
+  const touch = event.touches[0]
+  const deltaX = touch.clientX - startX
+  const deltaY = touch.clientY - startY
+  endY = touch.clientY
+
+  if (swipeState.value === 'pending') {
+    if (Math.max(Math.abs(deltaX), Math.abs(deltaY)) < DIRECTION_LOCK_DISTANCE) return
+
+    if (deltaY > 0 && deltaY >= Math.abs(deltaX) * VERTICAL_DOMINANCE_RATIO) {
+      swipeState.value = 'dragging'
+    } else if (deltaY < 0 || Math.abs(deltaX) >= Math.abs(deltaY) * VERTICAL_DOMINANCE_RATIO) {
+      swipeState.value = 'rejected'
+      return
+    } else {
+      return
+    }
+  }
+
+  if (swipeState.value !== 'dragging') return
+
+  // 只有方向锁定为「向下关闭」之后才阻止默认行为；正常的纵向滚动不受影响。
+  event.preventDefault()
+  swipeOffset.value = Math.max(deltaY, 0)
+}
+
+function closeDistance() {
+  const height = modalBoxRef.value?.offsetHeight || 0
+  return Math.min(120, Math.max(72, height * 0.2))
+}
+
+function prefersReducedMotion() {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+function onTouchEnd(event: TouchEvent) {
+  if (swipeState.value === 'settling' || swipeState.value === 'dismissing') return
+  if (swipeState.value !== 'dragging') {
+    resetSwipe()
+    return
+  }
+
+  const touch = event.changedTouches[0]
+  if (touch) endY = touch.clientY
+
+  const distance = Math.max(endY - startY, 0)
+  const duration = Math.max(performance.now() - startTime, 1)
+  const isFastFling = distance >= MIN_FLING_DISTANCE && distance / duration >= CLOSE_VELOCITY
+
+  if (distance >= closeDistance() || isFastFling) {
+    if (prefersReducedMotion()) {
+      resetSwipe()
+      close()
+      return
+    }
+
+    swipeState.value = 'dismissing'
+    swipeAnimating.value = true
+    swipeOffset.value = modalBoxRef.value?.offsetHeight || window.innerHeight
+    close()
+    return
+  }
+
+  settleSwipe()
+}
+
+function onTouchCancel() {
+  if (swipeState.value === 'dragging') {
+    settleSwipe()
+  } else {
+    resetSwipe()
+  }
+}
+
+function settleSwipe() {
+  if (prefersReducedMotion()) {
+    resetSwipe()
+    return
+  }
+
+  swipeState.value = 'settling'
+  swipeAnimating.value = true
+  swipeOffset.value = 0
+}
+
+function onBoxTransitionEnd(event: TransitionEvent) {
+  if (event.propertyName === 'transform' && swipeState.value === 'settling') resetSwipe()
+}
+
+function resetSwipe() {
+  swipeState.value = 'idle'
+  swipeOffset.value = 0
+  swipeAnimating.value = false
+  startX = 0
+  startY = 0
+  startTime = 0
+  endY = 0
+}
+
 function close() {
   isOpen.value = false
 }

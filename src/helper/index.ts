@@ -4,6 +4,7 @@ import { hiddenGroupMap, proxyMap } from '@/assembly/proxies'
 import { NOT_CONNECTED, PROXY_CHAIN_DIRECTION, PROXY_TYPE, ROUTE_NAME } from '@/constant'
 import { showNotification } from '@/helper/notification'
 import {
+  customCSS,
   customThemes,
   lowLatency,
   mediumLatency,
@@ -144,6 +145,25 @@ export const applyCustomThemes = () => {
     style.className = `custom-theme ${theme.name}`
     document.head.appendChild(style)
   })
+}
+
+export const applyCustomCSS = () => {
+  const styleId = 'custom-css'
+  const css = customCSS.value.trim()
+  let style = document.getElementById(styleId)
+
+  if (!css) {
+    style?.remove()
+    return
+  }
+
+  if (!style) {
+    style = document.createElement('style')
+    style.id = styleId
+    document.head.appendChild(style)
+  }
+
+  style.textContent = css
 }
 
 export const applyKsuTheme = () => {

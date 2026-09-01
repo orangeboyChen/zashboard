@@ -13,20 +13,21 @@ import {
 } from 'three/tsl'
 import * as THREE from 'three/webgpu'
 import { ENDPOINT_RADIUS } from './earthMath'
+import { ENDPOINT_PALETTE } from './palette'
 import { projectEarthSample, projectionMorph, toLocalSample, type EarthView } from './projection'
 import type { EarthRenderEndpoint, EarthRenderSnapshot, EarthVisualMode } from './rendererTypes'
 
 const ENDPOINT_CORE_RADIUS = 0.011
 const ENDPOINT_GLOW_RADIUS = 0.032
 const ROLE_COLORS = {
-  origin: new THREE.Color('#ffffff'),
-  destination: new THREE.Color('#79d8ff'),
+  origin: new THREE.Color(ENDPOINT_PALETTE.origin),
+  destination: new THREE.Color(ENDPOINT_PALETTE.destination),
 } as const
 const ROLE_GLOW_COLORS = {
   origin: new THREE.Color('#a9e9ff'),
   destination: new THREE.Color('#3fa8ff'),
 } as const
-const DIRECT_COLOR = new THREE.Color('#ff9f43')
+const DIRECT_COLOR = new THREE.Color(ENDPOINT_PALETTE.direct)
 const DIRECT_GLOW_COLOR = new THREE.Color('#ff7a1a')
 // The user's own location is the anchor of every arc, so it gets a slightly
 // wider bead and halo than the destinations radiating out of it.

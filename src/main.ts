@@ -6,7 +6,7 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import { loadFonts } from './assets/load-fonts'
 import './assets/main.css'
-import { applyCustomThemes, applyKsuTheme } from './helper'
+import { applyCustomCSS, applyCustomThemes, applyKsuTheme } from './helper'
 import { i18n } from './i18n'
 import router from './router'
 
@@ -21,6 +21,7 @@ if (isEdge) {
 }
 
 applyCustomThemes()
+applyCustomCSS()
 applyKsuTheme()
 loadFonts()
 

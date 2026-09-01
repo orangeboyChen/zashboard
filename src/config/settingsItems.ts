@@ -176,6 +176,12 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
         section: 'appearance',
       },
       {
+        key: `${SETTINGS_MENU_KEY.general}.zashboardSettings.customCSS`,
+        label: 'customCSS',
+        section: 'appearance',
+        keywords: ['css', 'style'],
+      },
+      {
         key: `${SETTINGS_MENU_KEY.general}.zashboardSettings.language`,
         label: 'language',
         section: 'settingsSectionApplication',

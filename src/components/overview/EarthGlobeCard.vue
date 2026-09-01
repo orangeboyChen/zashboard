@@ -129,27 +129,48 @@
       </div>
 
       <div
-        class="absolute bottom-2 left-2 flex flex-col items-start gap-0.5 text-[10px]"
-        :class="flatLook ? 'text-base-content/55' : 'text-white/65'"
+        class="pointer-events-none absolute right-2 bottom-2 left-2 flex items-end justify-between gap-2"
       >
-        <a
-          class="hover:underline"
-          :class="flatLook ? 'hover:text-base-content' : 'hover:text-white'"
-          href="https://db-ip.com/db/lite.php"
-          target="_blank"
-          rel="noopener noreferrer"
+        <div
+          class="pointer-events-auto flex flex-col items-start gap-0.5 text-[10px]"
+          :class="flatLook ? 'text-base-content/55' : 'text-white/65'"
         >
-          DB-IP City Lite
-        </a>
-        <a
-          class="hover:underline"
-          :class="flatLook ? 'hover:text-base-content' : 'hover:text-white'"
-          href="https://www.solarsystemscope.com/textures/"
-          target="_blank"
-          rel="noopener noreferrer"
+          <a
+            class="hover:underline"
+            :class="flatLook ? 'hover:text-base-content' : 'hover:text-white'"
+            href="https://db-ip.com/db/lite.php"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            DB-IP City Lite
+          </a>
+          <a
+            class="hover:underline"
+            :class="flatLook ? 'hover:text-base-content' : 'hover:text-white'"
+            href="https://www.solarsystemscope.com/textures/"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Solar System Scope · CC BY 4.0
+          </a>
+        </div>
+
+        <ul
+          class="bg-base-100/75 flex flex-wrap justify-end gap-x-2.5 gap-y-1 rounded-lg px-2 py-1.5 text-[10px] shadow backdrop-blur-md"
+          :aria-label="t('earthLegend')"
         >
-          Solar System Scope · CC BY 4.0
-        </a>
+          <li
+            v-for="item in legendItems"
+            :key="item.label"
+            class="flex items-center gap-1"
+          >
+            <span
+              class="ring-base-content/20 h-2 w-2 shrink-0 rounded-full ring-1"
+              :style="{ backgroundColor: item.color }"
+            />
+            <span class="text-base-content/70 whitespace-nowrap">{{ item.label }}</span>
+          </li>
+        </ul>
       </div>
 
       <div
@@ -338,6 +359,7 @@ import pLimit from 'p-limit'
 import type { CSSProperties } from 'vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ENDPOINT_PALETTE } from './earth/palette'
 import { buildEarthRoutes } from './earth/routes'
 import {
   DBIP_COMPRESSED_BYTES,
@@ -457,6 +479,11 @@ const showNoData = computed(
     !routesLoading.value &&
     routeCount.value === 0,
 )
+const legendItems = computed(() => [
+  { color: ENDPOINT_PALETTE.origin, label: t('earthRole_origin') },
+  { color: ENDPOINT_PALETTE.destination, label: t('earthLegendProxied') },
+  { color: ENDPOINT_PALETTE.direct, label: t('direct') },
+])
 const tooltipStyle = computed<CSSProperties>(() => ({
   left: `${Math.min(window.innerWidth - 190, tooltipPosition.value.x + 12)}px`,
   top: `${Math.min(window.innerHeight - 100, tooltipPosition.value.y + 12)}px`,

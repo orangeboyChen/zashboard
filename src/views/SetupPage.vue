@@ -92,13 +92,15 @@ const canSubmit = computed(() => reachability.status.value === 'online' && !isSu
 type SetupForm = Omit<Backend, 'uuid'>
 
 const finishLogin = async () => {
+  // 先切到 proxies 再同步:同步一旦被用户确认就会 location.reload(),
+  // 那时 hash 还停在 #/setup 的话,刷新后就卡在设置页回不去面板。
+  await router.push({ name: ROUTE_NAME.proxies })
+
   try {
-    const synced = await syncSettingsFromCore()
-    if (synced) return
+    await syncSettingsFromCore()
   } catch (error) {
     console.error('Failed to sync settings after login:', error)
   }
-  router.push({ name: ROUTE_NAME.proxies })
 }
 
 // 提交 = 再确认一次连通性后存下并进入面板。

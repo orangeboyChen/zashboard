@@ -60,6 +60,30 @@ export enum CONNECTIONS_TABLE_ACCESSOR_KEY {
   FromOutbound = 'fromOutbound',
 }
 
+// 桌面表格与卡片列表共享同一份分组能力清单。分组字段必须有稳定、可读的离散值；
+// 操作列、时间、流量与瞬时速率只用于展示/排序，不参与分组。
+export const CONNECTION_GROUPABLE_KEYS = [
+  CONNECTIONS_TABLE_ACCESSOR_KEY.Type,
+  CONNECTIONS_TABLE_ACCESSOR_KEY.Process,
+  CONNECTIONS_TABLE_ACCESSOR_KEY.Host,
+  CONNECTIONS_TABLE_ACCESSOR_KEY.SniffHost,
+  CONNECTIONS_TABLE_ACCESSOR_KEY.Rule,
+  CONNECTIONS_TABLE_ACCESSOR_KEY.Chains,
+  CONNECTIONS_TABLE_ACCESSOR_KEY.Outbound,
+  CONNECTIONS_TABLE_ACCESSOR_KEY.SourceIP,
+  CONNECTIONS_TABLE_ACCESSOR_KEY.SourcePort,
+  CONNECTIONS_TABLE_ACCESSOR_KEY.Destination,
+  CONNECTIONS_TABLE_ACCESSOR_KEY.DestinationType,
+  CONNECTIONS_TABLE_ACCESSOR_KEY.GeoIP,
+  CONNECTIONS_TABLE_ACCESSOR_KEY.RemoteAddress,
+  CONNECTIONS_TABLE_ACCESSOR_KEY.InboundUser,
+] as const
+
+export type ConnectionGroupableKey = (typeof CONNECTION_GROUPABLE_KEYS)[number]
+
+export const isConnectionGroupableKey = (value: unknown): value is ConnectionGroupableKey =>
+  CONNECTION_GROUPABLE_KEYS.includes(value as ConnectionGroupableKey)
+
 export enum TABLE_WIDTH_MODE {
   AUTO = 'auto',
   MANUAL = 'manual',
@@ -137,6 +161,70 @@ export enum SORT_DIRECTION {
   ASC = 'asc',
   DESC = 'desc',
 }
+
+// 排序键的取值类型:决定方向按钮该说「A → Z」还是「从大到小 / 最新在前」,
+// 以及切换排序字段时该落到哪个方向。
+export enum SORT_VALUE_KIND {
+  TEXT = 'text',
+  NUMBER = 'number',
+  TIME = 'time',
+}
+
+export const SORT_TYPE_VALUE_KIND: Record<SORT_TYPE, SORT_VALUE_KIND> = {
+  [SORT_TYPE.HOST]: SORT_VALUE_KIND.TEXT,
+  [SORT_TYPE.CHAINS]: SORT_VALUE_KIND.TEXT,
+  [SORT_TYPE.RULE]: SORT_VALUE_KIND.TEXT,
+  [SORT_TYPE.TYPE]: SORT_VALUE_KIND.TEXT,
+  [SORT_TYPE.SOURCE_IP]: SORT_VALUE_KIND.TEXT,
+  [SORT_TYPE.INBOUND_USER]: SORT_VALUE_KIND.TEXT,
+  [SORT_TYPE.CONNECT_TIME]: SORT_VALUE_KIND.TIME,
+  [SORT_TYPE.DOWNLOAD]: SORT_VALUE_KIND.NUMBER,
+  [SORT_TYPE.DOWNLOAD_SPEED]: SORT_VALUE_KIND.NUMBER,
+  [SORT_TYPE.UPLOAD]: SORT_VALUE_KIND.NUMBER,
+  [SORT_TYPE.UPLOAD_SPEED]: SORT_VALUE_KIND.NUMBER,
+}
+
+// 流量和时间字段升序会把 0 字节 / 最早的连接顶到最前,几乎不是用户想看的,
+// 所以切换到这类字段时默认降序;文本字段仍按 A → Z。
+export const naturalSortDirection = (sortType: SORT_TYPE) =>
+  SORT_TYPE_VALUE_KIND[sortType] === SORT_VALUE_KIND.TEXT ? SORT_DIRECTION.ASC : SORT_DIRECTION.DESC
+
+export const SORT_DIRECTION_LABEL_KEY: Record<SORT_VALUE_KIND, Record<SORT_DIRECTION, string>> = {
+  [SORT_VALUE_KIND.TEXT]: {
+    [SORT_DIRECTION.ASC]: 'sortAToZ',
+    [SORT_DIRECTION.DESC]: 'sortZToA',
+  },
+  [SORT_VALUE_KIND.NUMBER]: {
+    [SORT_DIRECTION.ASC]: 'sortSmallestFirst',
+    [SORT_DIRECTION.DESC]: 'sortLargestFirst',
+  },
+  [SORT_VALUE_KIND.TIME]: {
+    [SORT_DIRECTION.ASC]: 'sortOldestFirst',
+    [SORT_DIRECTION.DESC]: 'sortNewestFirst',
+  },
+}
+
+// 11 个排序字段平铺一列很难扫,按语义分三组呈现。
+export const SORT_TYPE_GROUPS: { labelKey: string; types: readonly SORT_TYPE[] }[] = [
+  {
+    labelKey: 'basic',
+    types: [
+      SORT_TYPE.HOST,
+      SORT_TYPE.TYPE,
+      SORT_TYPE.RULE,
+      SORT_TYPE.CHAINS,
+      SORT_TYPE.CONNECT_TIME,
+    ],
+  },
+  {
+    labelKey: 'traffic',
+    types: [SORT_TYPE.DOWNLOAD_SPEED, SORT_TYPE.UPLOAD_SPEED, SORT_TYPE.DOWNLOAD, SORT_TYPE.UPLOAD],
+  },
+  {
+    labelKey: 'sourceAndDestination',
+    types: [SORT_TYPE.SOURCE_IP, SORT_TYPE.INBOUND_USER],
+  },
+]
 
 export enum CONNECTION_TAB_TYPE {
   ACTIVE = 'activeConnections',
