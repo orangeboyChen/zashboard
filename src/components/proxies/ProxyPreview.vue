@@ -27,25 +27,25 @@
       <div
         :class="getBgColor(lowLatency - 1)"
         :style="{
-          width: getPreviewWidth(goodsCounts), // cant use tw class, otherwise dynamic classname won't be generated
+          width: getPreviewWidth(latencyCounts.good), // cant use tw class, otherwise dynamic classname won't be generated
         }"
       />
       <div
         :class="getBgColor(mediumLatency - 1)"
         :style="{
-          width: getPreviewWidth(mediumCounts),
+          width: getPreviewWidth(latencyCounts.medium),
         }"
       />
       <div
         :class="getBgColor(mediumLatency + 1)"
         :style="{
-          width: getPreviewWidth(badCounts),
+          width: getPreviewWidth(latencyCounts.bad),
         }"
       />
       <div
         :class="getBgColor(NOT_CONNECTED)"
         :style="{
-          width: getPreviewWidth(notConnectedCounts),
+          width: getPreviewWidth(latencyCounts.notConnected),
         }"
       />
     </div>
@@ -56,7 +56,7 @@
 import { NOT_CONNECTED, PROXY_PREVIEW_TYPE } from '@/constant'
 import { getColorForLatency } from '@/helper'
 import { useTooltip } from '@/helper/tooltip'
-import { getLatencyByName } from '@/assembly/proxies'
+import { latencyMapOf } from '@/assembly/proxies'
 import { lowLatency, mediumLatency, proxyPreviewType } from '@/store/settings'
 import { useElementSize } from '@vueuse/core'
 import { computed, ref } from 'vue'
@@ -109,14 +109,20 @@ const showDots = computed(() => {
   )
 })
 
-const nodesLatency = computed(() =>
-  props.nodes.map((name) => {
-    return {
-      latency: getLatencyByName(name, props.groupName),
-      name: name,
-    }
-  }),
+// 查全局延迟表,几百个节点的预览条不必自己再顺链算一遍
+const latencyMap = latencyMapOf(() => props.groupName)
+const latencyList = computed(() =>
+  props.nodes.map((name) => latencyMap.value.get(name) ?? NOT_CONNECTED),
 )
+
+// 只有点阵形态需要逐节点的对象,进度条形态只要四个计数,别为几百个节点白建一遍数组
+const nodesLatency = computed(() => {
+  if (!showDots.value) {
+    return []
+  }
+
+  return props.nodes.map((name, index) => ({ name, latency: latencyList.value[index] }))
+})
 const getBgColor = (latency: number) => {
   if (latency === NOT_CONNECTED) {
     return 'bg-base-content/60'
@@ -129,21 +135,23 @@ const getBgColor = (latency: number) => {
   }
 }
 
-const goodsCounts = computed(() => {
-  return nodesLatency.value.filter(
-    (node) => node.latency < lowLatency.value && node.latency > NOT_CONNECTED,
-  ).length
-})
-const mediumCounts = computed(() => {
-  return nodesLatency.value.filter(
-    (node) => node.latency >= lowLatency.value && node.latency < mediumLatency.value,
-  ).length
-})
-const badCounts = computed(() => {
-  return nodesLatency.value.filter((node) => node.latency >= mediumLatency.value).length
-})
-const notConnectedCounts = computed(() => {
-  return nodesLatency.value.filter((node) => node.latency === NOT_CONNECTED).length
+// 一趟数完四档,别为每一档各扫一遍
+const latencyCounts = computed(() => {
+  const counts = { good: 0, medium: 0, bad: 0, notConnected: 0 }
+
+  for (const latency of latencyList.value) {
+    if (latency === NOT_CONNECTED) {
+      counts.notConnected++
+    } else if (latency < lowLatency.value) {
+      counts.good++
+    } else if (latency < mediumLatency.value) {
+      counts.medium++
+    } else {
+      counts.bad++
+    }
+  }
+
+  return counts
 })
 </script>
 

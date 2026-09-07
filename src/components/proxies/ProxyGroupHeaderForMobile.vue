@@ -58,12 +58,11 @@
 
 <script setup lang="ts">
 import { KEYBOARD_SHORTCUT_ACTION, useKeyboardShortcuts } from '@/composables/keyboard'
+import { getDownloadSpeedByProxyGroup } from '@/composables/proxyGroupTraffic'
 import { isHiddenGroup } from '@/helper'
 import { hiddenGroupMap, proxyMap } from '@/assembly/proxies'
 import { useTooltip } from '@/helper/tooltip'
 import { prettyBytesHelper } from '@/helper/utils'
-import { getConnectionChains } from '@/helper'
-import { activeConnections } from '@/store/connections'
 import { manageHiddenGroup, twoColumnProxyGroup } from '@/store/settings'
 import { twMerge } from 'tailwind-merge'
 import { computed } from 'vue'
@@ -90,11 +89,7 @@ const { getShortcutKey } = useKeyboardShortcuts()
 const { showTip } = useTooltip()
 const proxyGroup = computed(() => proxyMap.value[props.name])
 
-const downloadTotal = computed(() => {
-  return activeConnections.value
-    .filter((conn) => getConnectionChains(conn).includes(props.name))
-    .reduce((total, conn) => total + conn.downloadSpeed, 0)
-})
+const downloadTotal = computed(() => getDownloadSpeedByProxyGroup(props.name))
 
 const hiddenGroup = computed({
   get: () => Boolean(isHiddenGroup(props.name)),

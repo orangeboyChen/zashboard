@@ -124,6 +124,7 @@ const props = withDefaults(
     columns: ColumnDef<T>[]
     // 排序状态落盘的 key,同一个表格换页面回来还在
     sortingKey: string
+    initialSorting?: SortingState
     estimateSize?: number
     overscan?: number
     columnVisibility?: VisibilityState
@@ -141,7 +142,7 @@ const emits = defineEmits<{
 
 const { t } = useI18n()
 
-const sorting = useStorage<SortingState>(props.sortingKey, [])
+const sorting = useStorage<SortingState>(props.sortingKey, () => props.initialSorting ?? [])
 
 const tanstackTable = useVueTable({
   get data() {

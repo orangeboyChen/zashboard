@@ -13,8 +13,32 @@
   />
 </template>
 
-<script setup lang="ts">
+<script lang="ts">
 import DOMPurify from 'dompurify'
+
+const DOM_STARTS_WITH = 'data:image/svg+xml,'
+
+/*
+ * 同一个图标在一页里会重复出现几十次(整组节点常常共用一个),而 sanitize 是要解析一遍
+ * DOM 的。按原始字符串缓存,展开一个大组时只在第一张卡片上真跑一次。
+ */
+const sanitizedCache = new Map<string, string>()
+
+const sanitizeIcon = (icon: string) => {
+  const raw = icon.slice(DOM_STARTS_WITH.length)
+  const cached = sanitizedCache.get(raw)
+
+  if (cached !== undefined) return cached
+
+  const pure = DOMPurify.sanitize(raw)
+
+  sanitizedCache.set(raw, pure)
+
+  return pure
+}
+</script>
+
+<script setup lang="ts">
 import { computed } from 'vue'
 
 const props = withDefaults(
@@ -37,13 +61,12 @@ const style = computed(() => {
     marginRight: `${props.margin}px`,
   }
 })
-const DOM_STARTS_WITH = 'data:image/svg+xml,'
 const isDom = computed(() => {
   return props.icon.startsWith(DOM_STARTS_WITH)
 })
 
 const pureDom = computed(() => {
   if (!isDom.value) return
-  return DOMPurify.sanitize(props.icon.replace(DOM_STARTS_WITH, ''))
+  return sanitizeIcon(props.icon)
 })
 </script>

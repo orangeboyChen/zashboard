@@ -140,27 +140,27 @@ export default defineComponent<{
           </span>
         ),
         [CONNECTIONS_TABLE_ACCESSOR_KEY.Download]: () => (
-          <div class="flex items-center text-xs whitespace-nowrap">
+          <div class="mr-1 flex items-center gap-[1px] text-xs whitespace-nowrap">
+            <ArrowDownIcon class="text-success h-3 w-3 shrink-0" />
             {highlightedText(CONNECTIONS_TABLE_ACCESSOR_KEY.Download)}
-            <ArrowDownIcon class="text-success ml-1 h-3 w-3" />
           </div>
         ),
         [CONNECTIONS_TABLE_ACCESSOR_KEY.Upload]: () => (
-          <div class="flex items-center text-xs whitespace-nowrap">
+          <div class="mr-1 flex items-center gap-[1px] text-xs whitespace-nowrap">
+            <ArrowUpIcon class="text-info h-3 w-3 shrink-0" />
             {highlightedText(CONNECTIONS_TABLE_ACCESSOR_KEY.Upload)}
-            <ArrowUpIcon class="text-info ml-1 h-3 w-3" />
           </div>
         ),
         [CONNECTIONS_TABLE_ACCESSOR_KEY.DlSpeed]: () => (
-          <div class="flex items-center text-xs whitespace-nowrap">
+          <div class="mr-1 flex items-center gap-[1px] text-xs whitespace-nowrap">
+            <ArrowDownCircleIcon class="text-success h-4 w-4 shrink-0" />
             {highlightedText(CONNECTIONS_TABLE_ACCESSOR_KEY.DlSpeed)}
-            <ArrowDownCircleIcon class="text-success ml-1 h-4 w-4" />
           </div>
         ),
         [CONNECTIONS_TABLE_ACCESSOR_KEY.UlSpeed]: () => (
-          <div class="flex items-center text-xs whitespace-nowrap">
+          <div class="mr-1 flex items-center gap-[1px] text-xs whitespace-nowrap">
+            <ArrowUpCircleIcon class="text-info h-4 w-4 shrink-0" />
             {highlightedText(CONNECTIONS_TABLE_ACCESSOR_KEY.UlSpeed)}
-            <ArrowUpCircleIcon class="text-info ml-1 h-4 w-4" />
           </div>
         ),
         [CONNECTIONS_TABLE_ACCESSOR_KEY.ConnectTime]: () => (

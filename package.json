@@ -1,6 +1,6 @@
 {
   "name": "zashboard",
-  "version": "3.24.0",
+  "version": "3.26.0",
   "description": "A Dashboard Using Clash API",
   "license": "MIT",
   "type": "module",
@@ -13,11 +13,14 @@
     "build:pingfang-only": "FONT=pingfang vite build",
     "build:sarasa-only": "FONT=sarasa vite build",
     "dev": "vite",
-    "format": "prettier --write src/",
+    "format": "prettier --write src/ test/",
     "generate": "buf generate",
     "lint": "eslint . --fix",
     "prepare": "husky",
     "preview": "vite preview",
+    "test:bench": "node test/bench.mjs",
+    "test:mock": "node test/mock-server.mjs",
+    "test:verify": "node test/verify.mjs",
     "type-check": "vue-tsc --build --force"
   },
   "dependencies": {

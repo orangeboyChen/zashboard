@@ -7,12 +7,13 @@
     <Transition
       name="modal"
       :duration="350"
-      @after-leave="resetSwipe"
+      @after-leave="onAfterLeave"
     >
       <div
         v-show="isOpen"
         ref="backdropRef"
-        class="modal modal-open"
+        class="modal"
+        :class="{ 'modal-open': isPresenting }"
         role="dialog"
         aria-modal="true"
         :aria-labelledby="title ? 'dialog-title' : undefined"
@@ -154,8 +155,27 @@ const backdropSwipeStyle = computed<CSSProperties | undefined>(() => {
 // 记账「当前有几个弹窗打开着」，并在打开期间跟踪可视视口高度（软键盘）。
 useDialogOpenState(isOpen)
 
+/*
+ * .modal-open 只在弹窗「在场」期间挂着：打开时立刻加上，离场动画跑完才摘掉。
+ *
+ * 不能直接用静态 class —— 弹窗是 v-show 收起的，元素始终留在 DOM 里，而 daisyUI 的
+ * :root:has(.modal-open) 整页滚动锁（base/rootscrolllock.css）不看 display，常挂的
+ * .modal-open 会让 <html> 永久 overflow: hidden，移动端浏览器的原生下拉刷新就再也
+ * 触发不了（「禁用下拉刷新」只管 body，关掉也没用，见 App.vue）。
+ *
+ * 也不能直接绑 isOpen：daisyUI 的 .modal 基础态是 visibility: hidden + opacity: 0，
+ * 关闭瞬间摘掉 .modal-open，离场动画会被一帧掐断。所以摘除推迟到 after-leave。
+ */
+const isPresenting = ref(!!isOpen.value)
+
+const onAfterLeave = () => {
+  isPresenting.value = false
+  resetSwipe()
+}
+
 watch(isOpen, (val) => {
   if (val) {
+    isPresenting.value = true
     resetSwipe()
     requestAnimationFrame(() => {
       modalBoxRef.value?.focus()

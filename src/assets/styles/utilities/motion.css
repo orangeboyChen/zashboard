@@ -77,11 +77,11 @@
   transition: color 0.18s ease-out;
 }
 
-.ios-segment-indicator {
+.segment-indicator {
   will-change: transform, width;
 }
 
-.ios-segment-indicator-ready {
+.segment-indicator-ready {
   transition:
     transform 0.4s cubic-bezier(0.32, 0.72, 0, 1),
     width 0.4s cubic-bezier(0.32, 0.72, 0, 1),
@@ -91,46 +91,86 @@
 @media (prefers-reduced-motion: reduce) {
   .sidebar-tab-indicator-ready,
   .sidebar-tab-active,
-  .ios-segment-indicator-ready {
+  .segment-indicator-ready {
     transition: none;
+  }
+}
+
+/* ---------- 折叠卡片 ---------- */
+
+/*
+ * 卡片高度、内容淡入淡出、后面行的位移共用一组 WAAPI 时长与曲线。
+ * 挂在 :root 而不是 .collapse-motion 上：行的位移那条选中的是卡片的兄弟节点，
+ * 拿不到卡片自己的自定义属性。
+ */
+:root {
+  --collapse-motion-duration: 0.26s;
+  --collapse-motion-ease: cubic-bezier(0.34, 0.1, 0.2, 1);
+}
+
+.collapse-motion {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: max-content max-content;
+}
+
+.collapse-motion > .collapse-motion-header {
+  grid-area: 1 / 1;
+}
+
+.collapse-motion > .collapse-motion-body {
+  grid-area: 2 / 1;
+  display: grid;
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.collapse-motion-preview,
+.collapse-motion-content {
+  grid-area: 1 / 1;
+  align-self: start;
+  opacity: 1;
+}
+
+.collapse-motion-body-transitioning > :is(.collapse-motion-preview, .collapse-motion-content) {
+  position: absolute;
+  inset: 0 0 auto;
+}
+
+.collapse-motion-open .collapse-motion-preview,
+.collapse-motion:not(.collapse-motion-open) .collapse-motion-content {
+  pointer-events: none;
+  opacity: 0;
+}
+
+.collapse-motion-placeholder {
+  position: relative;
+}
+
+.collapse-motion-floating > .collapse-motion {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  z-index: 1;
+}
+
+.virtual-row-shift-row {
+  transform: translateY(var(--virtual-row-shift, 0px));
+}
+
+/* 零时长动画也会正常完成并交接，无需额外的结束事件兜底。 */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --collapse-motion-duration: 0s;
   }
 }
 
 /* ---------- 代理节点网格 ---------- */
 
-/* 重排 FLIP + 增删淡入淡出 */
-.proxy-node-move {
-  transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1);
-}
-
-/* 无限滚动追加的批次淡入 */
-.proxy-node-enter-active {
-  transition:
-    opacity 0.2s ease-out,
-    scale 0.2s cubic-bezier(0.32, 0.72, 0, 1);
-}
-.proxy-node-enter-from {
-  opacity: 0;
-  scale: 0.92;
-}
-
-/*
- * 离场不脱离文档流:网格里用 absolute 会让所有离场卡片堆到左上角,
- * 搜索过滤时一次消失几十张会非常噪。就地淡出、结束后再重排。
- */
-.proxy-node-leave-active {
-  transition:
-    opacity 0.15s ease-in,
-    scale 0.15s ease-in;
-}
-.proxy-node-leave-to {
-  opacity: 0;
-  scale: 0.92;
-}
-
 /*
  * 测速后节点被重新排序时的定位提示。用 animation 而非 transition,
- * 才不会和 .proxy-node-move 的 FLIP 抢 transition-property。
+ * 让提示动画独立于节点本身的过渡属性。
  */
 .latency-highlight::after {
   content: '';
@@ -152,11 +192,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .proxy-node-move,
-  .proxy-node-enter-active,
-  .proxy-node-leave-active {
-    transition: none;
-  }
   .latency-highlight::after {
     animation: none;
   }

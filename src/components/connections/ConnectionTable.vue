@@ -11,13 +11,12 @@
     @mouseleave="handleMouseUp"
   >
     <!--
-      玻璃挂在这一层：行是 transform 定位的，tbody 只有已渲染的那几十行那么高，
-      只有这个包裹层的盒子等于虚拟总高（见 appearance.css）。
+      玻璃挂在这一层（见 appearance.css）。tbody 用上下两个占位行撑出虚拟总高，
+      表格自身盒子等于总高，sticky 表头和玻璃背景才能一直跟到底部。
     -->
     <div
-      class="table-glass"
+      class="table-glass pb-6"
       :class="isManualTable ? 'min-w-max' : 'min-w-min'"
-      :style="{ height: `${totalSize}px` }"
     >
       <table
         :class="['table', sizeOfTable, isManualTable && 'table-fixed']"
@@ -28,7 +27,7 @@
         "
       >
         <thead
-          class="bg-base-100 border-base-300/60 sticky top-0 z-10 border-b backdrop-blur-none!"
+          class="bg-base-100 border-base-300/60 sticky top-0 z-30 border-b backdrop-blur-none!"
         >
           <tr
             v-for="headerGroup in tanstackTable.getHeaderGroups()"
@@ -127,12 +126,19 @@
               </div>
             </td>
           </tr>
+          <!--
+            行不能脱离文档流,用上下两个撑高的空行占位代替 transform 定位,
+            tbody 高度才等于虚拟总高,sticky thead 和玻璃背景才跟得到底。
+          -->
           <tr
-            v-for="(virtualRow, index) in virtualRows"
+            v-if="paddingTop > 0"
+            :style="{ height: `${paddingTop}px` }"
+          ></tr>
+          <tr
+            v-for="virtualRow in virtualRows"
             :key="virtualRow.key.toString()"
             :style="{
               height: `${virtualRow.size}px`,
-              transform: `translateY(${virtualRow.start - index * virtualRow.size}px)`,
             }"
             class="hover:bg-primary/85! hover:text-primary-content!"
             :class="[
@@ -206,6 +212,10 @@
               />
             </td>
           </tr>
+          <tr
+            v-if="paddingBottom > 0"
+            :style="{ height: `${paddingBottom}px` }"
+          ></tr>
         </tbody>
       </table>
     </div>
@@ -699,7 +709,16 @@ const rowVirtualizerOptions = computed(() => {
 
 const rowVirtualizer = useVirtualizer(rowVirtualizerOptions)
 const virtualRows = computed(() => rowVirtualizer.value.getVirtualItems())
-const totalSize = computed(() => rowVirtualizer.value.getTotalSize() + 24)
+const paddingTop = computed(() => virtualRows.value[0]?.start ?? 0)
+const paddingBottom = computed(() => {
+  const last = virtualRows.value[virtualRows.value.length - 1]
+
+  if (!last) {
+    return 0
+  }
+
+  return rowVirtualizer.value.getTotalSize() - last.end
+})
 
 const classMap = {
   [TABLE_SIZE.SMALL]: 'table-xs',

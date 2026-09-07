@@ -152,7 +152,7 @@ import { useConnections } from '@/composables/connections'
 import { CONNECTIONS_TABLE_ACCESSOR_KEY } from '@/constant'
 import { getConnectionChains, getConnectionSourceIP, getDestinationFromConnection } from '@/helper'
 import { PROXIES_PARENT_CLASS } from '@/helper/utils'
-import { proxyChainDirection, showFullProxyChain } from '@/store/settings'
+import { proxyChainDirection } from '@/store/settings'
 import {
   ArrowRightCircleIcon,
   MapPinIcon,
@@ -250,7 +250,8 @@ const sections = computed(() => {
   const options = {
     mode: 'table' as const,
     proxyChainDirection: proxyChainDirection.value,
-    showFullProxyChain: showFullProxyChain.value,
+    // 连接详情要展示完整链路，不受列表/卡片的精简开关影响
+    showFullProxyChain: true,
   }
   const rowsOf = (keys: CONNECTIONS_TABLE_ACCESSOR_KEY[]) =>
     keys
