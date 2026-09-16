@@ -157,6 +157,7 @@
             </div>
           </div>
           <TimeSeriesChart
+            :title="$t('networkQuality')"
             :data="nqChartData"
             :label-formatter="formatBitrate"
             :tooltip-formatter="nqTooltipFormatter"
