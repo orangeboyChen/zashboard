@@ -1,34 +1,10 @@
-// 组装层 · 后端判别与能力表。
-//
-// 这里只有两条正交的判别轴,且**仅限 assembly 层内部使用**
-//(components / views / composables 由 eslint no-restricted-imports 禁止导入):
-//
-//   channel —— 用户配置的连接通道(activeBackend.type)。确定性事实,同步可知,
-//              决定走 sing-box API(gRPC)还是 Clash REST/WS。
-//   core    —— 运行时内核品牌。靠 /version 字符串嗅探得来,是启发式猜测,
-//              可能误判(分支核 / 兼容核),且拉取完成前为 'unknown'。
-//
-// 两轴交叉出四种实际在用的 API 形态:
-//   A. channel=clash   + core=mihomo   mihomo 的 Clash API
-//   B. channel=clash   + core=singbox  sing-box 的 Clash 兼容 API(端点子集 + 少量专属端点)
-//   C. channel=clash   + core=honk     honk 的 Clash 兼容 API(又一个端点子集)
-//   D. channel=singbox + core=singbox  sing-box API(gRPC)
-//
-// 能力表据此分两类,一律通过 can() 读取:
-//   hard —— 由 channel / apiVersion 决定。确定事实,任何情况下都掰不开。
-//   soft —— 由 core 决定。因探测是启发式,允许用户用 displayAllFeatures 强制掰开
-//           (提示文案承诺:fork 版内核可能支持官方版没有的功能)。
-//
-// 注意:能凭响应数据自证的差异(如 rules 开关端点由 rule.uuid 决定、smart 由
-// proxy.type 决定)不进此表,就近放在对应的 assembly 子模块里 —— 数据比版本
-// 字符串可靠,不该被降级成全局猜测。
-
-import { probeClashChannel } from '@/api/clash'
 import type { ProbeResult } from '@/helper/connectivity'
 import { displayAllFeatures } from '@/store/settings'
 import { activeBackend } from '@/store/setup'
 import type { Backend } from '@/types'
 import { computed, ref } from 'vue'
+import { daeCapabilities } from './capabilities'
+import { driverFor } from './driver'
 
 // usbip 需要 sing-box gRPC API v2(ProvideUSBDevices 流)
 const USBIP_MIN_API_VERSION = 2
@@ -46,6 +22,7 @@ export enum Core {
   Mihomo = 'mihomo',
   Singbox = 'singbox',
   Honk = 'honk',
+  Dae = 'dae',
   Unknown = 'unknown',
 }
 
@@ -80,105 +57,195 @@ export const showDisplayAllFeatures = computed(
   () => !!activeBackend.value && isNonMihomoClashCore.value,
 )
 
-const hard = computed(() => {
-  const clash = !!activeBackend.value && channel.value === Channel.Clash
-  const singbox = !!activeBackend.value && channel.value === Channel.Singbox
+export type Cap =
+  | 'rules'
+  | 'coreUpgrade'
+  | 'coreRestart'
+  | 'dashboardUpgrade'
+  | 'reloadConfigs'
+  | 'updateConfigs'
+  | 'updateGeoDatabase'
+  | 'syncSettings'
+  | 'independentLatency'
+  | 'coreUpdateCheck'
+  | 'configPatch'
+  | 'traceLogLevel'
+  | 'silentLogLevel'
+  | 'runtimeStats'
+  | 'latencyTest'
+  | 'proxyProviderUpdate'
+  | 'proxyProviderHealthCheck'
+  | 'ruleProviders'
+  | 'flushDNSCache'
+  | 'flushFakeIP'
+  | 'dnsQuery'
+  | 'connectionsClose'
+  | 'connectionsFilterClose'
+  | 'customTestUrl'
+  | 'nodeLatencyTest'
+  | 'metricsHistory'
+  | 'backendEvents'
+  | 'flows'
+  | 'dnsCache'
+  | 'dnsLog'
+  | 'routingTrace'
+  | 'datapath'
+  | 'runtimeSettings'
+  | 'configSources'
+  | 'configEdit'
+  | 'entryManage'
+  | 'groupConfigPatch'
+  | 'lifecycleControl'
+  // ---------- sing-box 通道专属 ----------
+  // 以下各项由 channel / apiVersion 决定:确定事实,不随 displayAllFeatures 掰开。
+  // 自定义全局节点
+  | 'customGlobalNode'
+  // sing-box 日志 payload 带 "[type]:" 前缀,可据此做类型分面过滤
+  | 'logTypeFilter'
+  // sing-box 日志以 "[连接id 耗时]" 开头,可据此从日志跳到对应连接
+  | 'logConnectionDetail'
+  // sing-box 切换模式后需要主动断开命中 clash_mode 规则的连接
+  | 'disconnectOnModeChange'
+  // fatal / panic 日志级别:仅 sing-box 支持
+  | 'extraLogLevels'
+  | 'tools'
+  | 'goroutines'
+  | 'startedAt'
+  | 'usbip'
+  | 'openvpn'
+  | 'taildrop'
 
-  return {
-    rules: clash,
-    dnsQuery: clash,
-    dnsFlush: clash,
-    fakeIPFlush: clash,
-    coreActions: clash,
-    dashboardUpgrade: clash,
+type Caps = Partial<Record<Cap, boolean>>
 
-    tools: singbox,
-    goroutines: singbox,
-    startedAt: singbox,
-    usbip: singbox && apiVersion.value >= USBIP_MIN_API_VERSION,
-    openvpn: singbox && apiVersion.value >= OPENVPN_MIN_API_VERSION,
-    taildrop: singbox && apiVersion.value >= TAILDROP_MIN_API_VERSION,
-  }
-})
-
-const soft = computed(() => {
-  const singbox = core.value === Core.Singbox
+const clashCaps = computed<Caps>(() => {
   const mihomo = core.value === Core.Mihomo
   const honk = core.value === Core.Honk
   const mihomoOrForkCore = mihomo || isForkCoreOverride.value
 
   return {
-    // ---------- mihomo 内核侧 ----------
+    rules: true,
+
     coreUpgrade: mihomoOrForkCore,
     coreRestart: mihomoOrForkCore,
-    // 面板自升级 /upgrade/ui。honk 没有任何 /upgrade* 路由。
     dashboardUpgrade: mihomoOrForkCore,
     reloadConfigs: mihomoOrForkCore,
     updateConfigs: mihomoOrForkCore,
     updateGeoDatabase: mihomoOrForkCore,
-    // /storage/zashboard 设置同步,mihomo 扩展
     syncSettings: mihomoOrForkCore,
     independentLatency: mihomoOrForkCore,
     coreUpdateCheck: mihomo,
-    // ports / tun / allow-lan 等 PATCH /configs 配置块。
     configPatch: mihomo,
 
-    // ---------- sing-box 内核侧 ----------
-    // 自定义全局节点
-    customGlobalNode: singbox,
-    // sing-box 日志 payload 带 "[type]:" 前缀,可据此做类型分面过滤
-    logTypeFilter: singbox,
-    // sing-box 日志以 "[连接id 耗时]" 开头,可据此从日志跳到对应连接
-    logConnectionDetail: singbox,
-    // sing-box 切换模式后需要主动断开命中 clash_mode 规则的连接
-    disconnectOnModeChange: singbox,
+    traceLogLevel: honk,
+    silentLogLevel: mihomo,
 
-    // ---------- 日志级别集合 ----------
-    // /logs?level= 传了内核不认的级别会被 400 掉,WS 随后陷入无限重连,
-    // 所以按内核各自支持的取值逐档点亮,拼装见 assembly/logs。
-    // trace:sing-box 与 honk 有,mihomo 没有
-    traceLogLevel: singbox || honk,
-    // fatal / panic:仅 sing-box
-    extraLogLevels: singbox,
-    // silent:mihomo 与 sing-box 有,honk 没有
-    silentLogLevel: mihomo || singbox,
-    // GET /stats:honk 独有的用户态运行时快照。
     runtimeStats: honk,
+
+    latencyTest: true,
+    proxyProviderUpdate: true,
+    proxyProviderHealthCheck: true,
+    ruleProviders: true,
+    flushDNSCache: true,
+    flushFakeIP: true,
+    dnsQuery: true,
+    connectionsClose: true,
+    customTestUrl: true,
+    nodeLatencyTest: true,
   }
 })
 
-type HardCaps = typeof hard.value
-type SoftCaps = typeof soft.value
+const daeCaps = computed<Caps>(() => {
+  const resources = daeCapabilities.value?.resources
 
-export type HardCap = keyof HardCaps
-export type SoftCap = keyof SoftCaps
-export type Cap = HardCap | SoftCap
+  return {
+    rules: true,
+
+    reloadConfigs: resources?.reload.available === true,
+    updateGeoDatabase: resources?.geodata.can_update === true,
+
+    traceLogLevel: resources?.logs.levels?.includes('trace') === true,
+
+    runtimeStats: resources?.runtime_outbounds.available === true,
+
+    latencyTest: resources?.probes.available === true,
+    proxyProviderUpdate: resources?.providers.can_refresh === true,
+    flushDNSCache: resources?.dns_cache.flush === true,
+    dnsQuery: resources?.dns_query.available === true,
+    connectionsClose: resources?.connections.can_close === true,
+    connectionsFilterClose: resources?.connections.can_close === true,
+    metricsHistory:
+      resources?.traffic_history.available === true || resources?.memory_history.available === true,
+    backendEvents: resources?.events.available === true,
+    flows: resources?.flows.available === true,
+    dnsCache: resources?.dns_cache.read === true,
+    dnsLog: resources?.dns_log.available === true,
+    routingTrace: resources?.routing_trace.available === true,
+    datapath: resources?.datapath.available === true,
+    runtimeSettings: resources?.runtime_settings.available === true,
+    configSources: resources?.config.available === true,
+    configEdit: resources?.config.writable === true && resources?.config.content === true,
+    entryManage: resources?.nodes.can_manage === true || resources?.providers.can_manage === true,
+    groupConfigPatch: resources?.groups.config_patch === true,
+    lifecycleControl: resources?.suspend.available === true && resources?.resume.available === true,
+  }
+})
+
+// sing-box API(gRPC)通道的能力:由 channel 与 apiVersion 决定的硬事实。
+// 这里的每一项都不依赖 /version 嗅探出的 core,因此不受 displayAllFeatures 影响。
+const singboxCaps = computed<Caps>(() => {
+  const connected = !!activeBackend.value
+
+  return {
+    customGlobalNode: connected,
+    logTypeFilter: connected,
+    logConnectionDetail: connected,
+    disconnectOnModeChange: connected,
+    extraLogLevels: connected,
+    traceLogLevel: connected,
+    silentLogLevel: connected,
+
+    // sing-box 的 clash-mode 由 setClashMode 切换,driver 已实现 config.patch,
+    // 模式选择器据此显示(见 ProxiesCtrl 的 can('configPatch') 门控)。
+    configPatch: connected,
+
+    tools: connected,
+    goroutines: connected,
+    startedAt: connected,
+    usbip: connected && apiVersion.value >= USBIP_MIN_API_VERSION,
+    openvpn: connected && apiVersion.value >= OPENVPN_MIN_API_VERSION,
+    taildrop: connected && apiVersion.value >= TAILDROP_MIN_API_VERSION,
+
+    latencyTest: true,
+    proxyProviderUpdate: true,
+    proxyProviderHealthCheck: true,
+    nodeLatencyTest: true,
+    connectionsClose: true,
+    customTestUrl: true,
+  }
+})
+
+const soft = computed<Caps>(() => {
+  const type = activeBackend.value?.type
+
+  if (type === 'dae') return daeCaps.value
+  if (type === 'singbox') return singboxCaps.value
+
+  return clashCaps.value
+})
 
 export const can = (cap: Cap): boolean => {
   if (!activeBackend.value) return false
 
-  const hardCaps = hard.value
-
-  if (cap in hardCaps) return hardCaps[cap as HardCap]
-
-  // displayAllFeatures 的覆盖已在 soft 表内按行决定,这里只查表。
-  return soft.value[cap as SoftCap]
+  return soft.value[cap] === true
 }
 
 // 后端连通性探测(供 Setup / EditBackend / 连接失败页使用)。
-// 按通道选对应的探测,结果形状统一成 ProbeResult:成功带耗时,失败带可诊断的分类,
-// 由 helper/connectivity 的 describeProbeFailure 翻译成给用户看的一句话。
-export const probeBackend = async (
+// 按后端类型分派到对应 driver 的 probe,结果形状统一成 ProbeResult。
+export const probeBackend = (
   backend: Backend,
   timeout: number = 10000,
   signal?: AbortSignal,
-): Promise<ProbeResult> => {
-  if (backend.type === 'singbox') {
-    const { probeSingboxChannel } = await import('@/api/singbox/client')
-    return probeSingboxChannel(backend, timeout, signal)
-  }
-  return probeClashChannel(backend, timeout, signal)
-}
+): Promise<ProbeResult> => driverFor(backend).system.probe(backend, timeout, signal)
 
 export const isBackendAvailable = (backend: Backend, timeout: number = 10000) =>
   probeBackend(backend, timeout).then((result) => result.ok)
