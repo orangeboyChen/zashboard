@@ -12,6 +12,7 @@
 import { getSingboxClient, probeSingboxChannel } from '@/api/singbox/client'
 import type { StreamHandle } from '@/api/singbox/streams'
 import { subscribeStream } from '@/api/singbox/subscriptions'
+import { apiVersion } from '@/assembly/backend'
 import { defaultConfig } from '@/assembly/config'
 import { activeConnections } from '@/assembly/connections'
 import { proxyMap } from '@/assembly/proxies/state'
@@ -130,10 +131,15 @@ const accessor: ConnectionAccessor = {
 
     return c.user || c.inbound || '-'
   },
-  sniffHost: (connection) => asSingbox(connection).domain,
+  sniffHost: (connection) => asSingbox(connection).domain || '',
   remoteAddress: (connection) => asSingbox(connection).destination || '',
   isDirect: (connection) => asSingbox(connection).outboundType === 'direct',
   smartBlock: () => undefined,
+
+  // sing-box 专属:protobuf 里确有这三个字段,连接详情与表格都有对应列。
+  protocol: (connection) => asSingbox(connection).protocol || '',
+  outboundType: (connection) => asSingbox(connection).outboundType || '',
+  fromOutbound: (connection) => asSingbox(connection).fromOutbound || '',
 }
 
 // ==========================================================================
@@ -569,6 +575,11 @@ export const singboxDriver: Driver = {
       if (!singboxClient) return ''
 
       const version = await singboxClient.getVersion({})
+
+      // apiVersion 是 usbip / openvpn / taildrop 三项能力的唯一来源。
+      // probeActiveBackend() 每次会话都会把它清零,而 getVersion 是唯一能拿到
+      // 真实值的地方,必须在这里写回共享 ref,否则那三项永远处于关闭状态。
+      apiVersion.value = Number(version.apiVersion) || 0
 
       return version.version.includes('sing-box') ? version.version : `sing-box ${version.version}`
     },

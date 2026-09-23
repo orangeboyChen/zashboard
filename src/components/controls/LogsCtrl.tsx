@@ -1,3 +1,4 @@
+import { can } from '@/assembly/backend'
 import { initLogs, isPaused, logLevel, logs, supportedLogLevels } from '@/assembly/logs'
 import { useCtrlsBar } from '@/composables/use-ctrls-bar'
 import { useTooltip } from '@/composables/use-tooltip'
@@ -54,16 +55,34 @@ export default defineComponent({
       const types: string[] = []
       const levels: string[] = []
 
-      for (const log of logs.value) {
-        const index = log.payload.indexOf(' ')
-        const type = index === -1 ? log.payload : log.payload.slice(0, index)
+      // sing-box 的日志形如 "[连接id 耗时] 子系统: 正文",
+      // 按第一个空格切会得到 "[3829292130" 这类连接 id,必须先跳过前缀再取到第一个冒号。
+      if (can('logTypeFilter')) {
+        for (const log of logs.value) {
+          const startIndex = log.payload.startsWith('[') ? log.payload.indexOf(']') + 2 : 0
+          const endIndex = log.payload.indexOf(':', startIndex)
+          const type = log.payload.slice(startIndex, endIndex + 1)
 
-        if (!types.includes(type)) {
-          types.push(type)
+          if (!types.includes(type)) {
+            types.push(type)
+          }
+
+          if (!levels.includes(log.type)) {
+            levels.push(log.type)
+          }
         }
+      } else {
+        for (const log of logs.value) {
+          const index = log.payload.indexOf(' ')
+          const type = index === -1 ? log.payload : log.payload.slice(0, index)
 
-        if (!levels.includes(log.type)) {
-          levels.push(log.type)
+          if (!types.includes(type)) {
+            types.push(type)
+          }
+
+          if (!levels.includes(log.type)) {
+            levels.push(log.type)
+          }
         }
       }
 

@@ -44,7 +44,14 @@ const initEvents = () => {
   })
 }
 
+// 世代号:startBackendSession 中途有 await,探测期间用户可能又切了后端甚至登出。
+// 旧会话醒来必须让位 —— 否则它会用新后端的 driver 重建一遍流,
+// 登出时更会让 driver() 回退到默认 clash 实现去解引用一个不存在的 activeBackend。
+let generation = 0
+
 export const startBackendSession = async () => {
+  const current = ++generation
+
   stopConnections()
   stopLogs()
   stopSatistic()
@@ -57,6 +64,8 @@ export const startBackendSession = async () => {
   }
 
   await probeActiveBackend().catch(() => {})
+
+  if (current !== generation) return
 
   fetchConfigs()
   fetchProxies()

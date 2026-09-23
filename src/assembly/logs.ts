@@ -17,6 +17,8 @@ export const supportedLogLevels = computed(() => {
   const levels = [LOG_LEVEL.Debug, LOG_LEVEL.Info, LOG_LEVEL.Warning, LOG_LEVEL.Error]
 
   if (can('traceLogLevel')) levels.unshift(LOG_LEVEL.Trace)
+  // sing-box 支持 fatal / panic 两档阈值,由 extraLogLevels 能力开启。
+  if (can('extraLogLevels')) levels.push(LOG_LEVEL.Fatal, LOG_LEVEL.Panic)
   if (can('silentLogLevel')) levels.push(LOG_LEVEL.Silent)
 
   return levels

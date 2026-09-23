@@ -204,6 +204,10 @@ const singboxCaps = computed<Caps>(() => {
     traceLogLevel: connected,
     silentLogLevel: connected,
 
+    // sing-box 的 clash-mode 由 setClashMode 切换,driver 已实现 config.patch,
+    // 模式选择器据此显示(见 ProxiesCtrl 的 can('configPatch') 门控)。
+    configPatch: connected,
+
     tools: connected,
     goroutines: connected,
     startedAt: connected,
