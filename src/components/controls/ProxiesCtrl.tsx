@@ -164,7 +164,7 @@ export default defineComponent({
             <ArrowPathIcon class={['h-4 w-4', isUpgrading.value && 'animate-spin']} />
           </button>
         )
-      const modeSelect = configs.value && can('configPatch') && (
+      const modeSelect = configs.value && can('modeSwitch') && (
         <SelectInput
           class={['select select-sm', isLargeCtrlsBar.value ? 'min-w-40' : 'min-w-24']}
           modelValue={configs.value.mode}
