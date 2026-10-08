@@ -69,6 +69,7 @@ export type Cap =
   | 'independentLatency'
   | 'coreUpdateCheck'
   | 'configPatch'
+  | 'modeSwitch'
   | 'traceLogLevel'
   | 'silentLogLevel'
   | 'runtimeStats'
@@ -135,6 +136,8 @@ const clashCaps = computed<Caps>(() => {
     independentLatency: mihomoOrForkCore,
     coreUpdateCheck: mihomo,
     configPatch: mihomo,
+    // 切换 mode 是 Clash API 的基础能力,不等同于修改端口 / TUN 等 mihomo 配置。
+    modeSwitch: true,
 
     traceLogLevel: honk,
     silentLogLevel: mihomo,
@@ -204,9 +207,8 @@ const singboxCaps = computed<Caps>(() => {
     traceLogLevel: connected,
     silentLogLevel: connected,
 
-    // sing-box 的 clash-mode 由 setClashMode 切换,driver 已实现 config.patch,
-    // 模式选择器据此显示(见 ProxiesCtrl 的 can('configPatch') 门控)。
-    configPatch: connected,
+    // sing-box 的 clash-mode 由 setClashMode 切换,但不支持端口 / TUN 等通用配置 PATCH。
+    modeSwitch: connected,
 
     tools: connected,
     goroutines: connected,
