@@ -1,0 +1,36 @@
+name: Publish synced release
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+
+jobs:
+  prepare-version:
+    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'automation/upstream-v')
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Extract upstream version
+        id: version
+        env:
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          tag="${BRANCH#automation/upstream-}"
+          version="${tag#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid upstream release tag: $tag"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: prepare-version
+    uses: ./.github/workflows/deploy.yml
+    with:
+      version: ${{ needs.prepare-version.outputs.version }}
+      overwrite: false

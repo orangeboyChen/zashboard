@@ -12,6 +12,17 @@ on:
         required: true
         default: false
         type: boolean
+  workflow_call:
+    inputs:
+      version:
+        description: Release version or tag (for example, v3.23.0)
+        required: true
+        type: string
+      overwrite:
+        description: Overwrite an existing GitHub Release and its assets
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
