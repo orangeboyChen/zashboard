@@ -97,7 +97,12 @@ export interface ConnectionAccessor {
 }
 
 export interface SystemDriver {
-  probe(backend: Backend, timeout: number, signal?: AbortSignal): Promise<ProbeResult>
+  probe(
+    backend: Backend,
+    timeout: number,
+    signal?: AbortSignal,
+    authenticate?: boolean,
+  ): Promise<ProbeResult>
   fetchVersion(): Promise<string>
   upgradeCore(channel: 'release' | 'alpha' | 'auto'): Promise<void>
   restartCore(): Promise<void>

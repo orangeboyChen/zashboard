@@ -1,10 +1,10 @@
 import {
   ArrowsRightLeftIcon,
-  ChartBarIcon,
   Cog6ToothIcon,
   CubeTransparentIcon,
   DocumentTextIcon,
   GlobeAltIcon,
+  Squares2X2Icon,
   SwatchIcon,
   WrenchScrewdriverIcon,
 } from '@heroicons/vue/24/outline'
@@ -226,7 +226,6 @@ export const SORT_TYPE_GROUPS: { labelKey: string; types: readonly SORT_TYPE[] }
 
 export enum CONNECTION_TAB_TYPE {
   ACTIVE = 'activeConnections',
-  CLOSED = 'closedConnections',
   ALL = 'allConnections',
 }
 
@@ -260,7 +259,7 @@ export enum ROUTE_NAME {
 }
 
 export const ROUTE_ICON_MAP = {
-  [ROUTE_NAME.overview]: ChartBarIcon,
+  [ROUTE_NAME.overview]: Squares2X2Icon,
   [ROUTE_NAME.proxies]: GlobeAltIcon,
   [ROUTE_NAME.connections]: ArrowsRightLeftIcon,
   [ROUTE_NAME.rules]: SwatchIcon,
