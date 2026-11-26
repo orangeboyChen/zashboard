@@ -8,18 +8,43 @@ import { daeBearer, dropDaeSession, ensureDaeSession, isDaePasswordMode } from '
 declare module 'axios' {
   interface AxiosRequestConfig {
     daeReauth?: boolean
+    backendRequestKey?: string
   }
+}
+
+const requestKey = (backend: NonNullable<typeof activeBackend.value>) =>
+  JSON.stringify([backend.uuid, backend.type, getUrlFromBackend(backend), backend.username])
+
+const currentRequestKey = () => {
+  const backend = activeBackend.value
+
+  return backend ? requestKey(backend) : undefined
 }
 
 axios.interceptors.request.use(async (config) => {
   const backend = activeBackend.value
 
+  if (!backend && config.backendRequestKey) {
+    throw new axios.CanceledError('Active backend changed')
+  }
+
   if (backend) {
+    const key = requestKey(backend)
+
+    if (config.backendRequestKey && config.backendRequestKey !== key) {
+      throw new axios.CanceledError('Active backend changed')
+    }
+
+    config.backendRequestKey = key
     config.baseURL = getUrlFromBackend(backend)
 
     const token = isDaePasswordMode(backend)
       ? await ensureDaeSession(backend).catch(() => '')
       : backend.password
+
+    if (currentRequestKey() !== key) {
+      throw new axios.CanceledError('Active backend changed')
+    }
 
     if (token) {
       config.headers['Authorization'] = 'Bearer ' + token
@@ -39,10 +64,11 @@ axios.interceptors.response.use(
   ) => {
     const backend = activeBackend.value
     const config = error.config
+    const isCurrentBackend = backend && config?.backendRequestKey === requestKey(backend)
 
     if (
       error.status === 401 &&
-      backend &&
+      isCurrentBackend &&
       isDaePasswordMode(backend) &&
       config &&
       !config.daeReauth
@@ -56,13 +82,17 @@ axios.interceptors.response.use(
       try {
         await ensureDaeSession(backend)
 
+        if (currentRequestKey() !== config.backendRequestKey) {
+          throw new axios.CanceledError('Active backend changed')
+        }
+
         return await axios.request({ ...config, daeReauth: true })
       } catch (retryError) {
         if (axios.isAxiosError(retryError)) throw retryError
       }
     }
 
-    if (error.status === 401 && activeUuid.value) {
+    if (error.status === 401 && isCurrentBackend && activeUuid.value) {
       const uuid = activeUuid.value
       const alreadyEditing =
         backendManagerView.value?.mode === 'edit' && backendManagerView.value.uuid === uuid

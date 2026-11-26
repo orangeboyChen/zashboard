@@ -53,8 +53,8 @@ export const fetchDaeDiscovery = async (backend: Endpoint, signal?: AbortSignal)
   return (await res.json()) as DaeDiscovery
 }
 
-const openSession = async (backend: Endpoint, allowSetup: boolean) => {
-  const discovery = await fetchDaeDiscovery(backend)
+const openSession = async (backend: Endpoint, allowSetup: boolean, signal?: AbortSignal) => {
+  const discovery = await fetchDaeDiscovery(backend, signal)
 
   if (discovery.auth.mode !== 'password') {
     throw new DaeAuthError('token_mode', 0, 'dae: backend is not in password mode')
@@ -69,12 +69,14 @@ const openSession = async (backend: Endpoint, allowSetup: boolean) => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: backend.username, password: backend.password }),
+    signal,
   })
 
   if (!res.ok) throw await readError(res)
 
   const session = (await res.json()) as DaeAuthSession
 
+  signal?.throwIfAborted()
   sessions.value = { ...sessions.value, [sessionKey(backend)]: session }
 
   return session.token
@@ -84,8 +86,22 @@ export const ensureDaeSession = (
   backend: Endpoint,
   force = false,
   allowSetup = false,
+  signal?: AbortSignal,
 ): Promise<string> => {
   if (!isDaePasswordMode(backend)) return Promise.resolve(backend.password)
+
+  if (signal) {
+    signal.throwIfAborted()
+
+    if (!force) {
+      const token = liveToken(backend)
+
+      if (token) return Promise.resolve(token)
+    }
+
+    // A probe owns its timeout. Do not share its abortable login with ordinary requests.
+    return openSession(backend, allowSetup, signal)
+  }
 
   const key = sessionKey(backend)
   const running = pending.get(key)

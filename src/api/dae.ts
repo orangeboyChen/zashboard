@@ -382,6 +382,7 @@ export const probeDaeChannel = async (
   const onAbort = () => controller.abort()
 
   signal?.addEventListener('abort', onAbort, { once: true })
+  if (signal?.aborted) controller.abort()
 
   const startAt = Date.now()
   const latency = () => Date.now() - startAt
@@ -406,7 +407,9 @@ export const probeDaeChannel = async (
     let token = backend.password
 
     if (passwordMode) {
-      token = authenticate ? await ensureDaeSession(backend, true, true) : daeBearer(backend)
+      token = authenticate
+        ? await ensureDaeSession(backend, true, true, controller.signal)
+        : daeBearer(backend)
 
       if (!token) return await probePasswordMode()
     }
