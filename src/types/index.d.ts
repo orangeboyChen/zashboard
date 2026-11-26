@@ -13,6 +13,7 @@ export type Backend = {
   port: string
   secondaryPath: string
   password: string
+  username?: string
   uuid: string
   label?: string
   disableUpgradeCore?: boolean // 仅 clash
